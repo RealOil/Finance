@@ -12,25 +12,39 @@ st.set_page_config(
     page_title="경제 자유도 시뮬레이션",
     page_icon="💰",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
+
+# 페이지 네비게이션 사이드바 숨기기 (CSS)
+st.markdown("""
+<style>
+    /* 페이지 네비게이션 사이드바 숨기기 */
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+    /* 메인 컨텐츠 영역 패딩 조정 */
+    [data-testid="stAppViewContainer"] > div {
+        padding-left: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 세션 상태 초기화
 init_session_state()
 
-# 사이드바 네비게이션
-st.sidebar.title("💰 경제 자유도 시뮬레이션")
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📊 메뉴")
-st.sidebar.markdown("""
-- [홈](/)
-- [소득 지출 분석](/소득_지출_분석)
-- [리스크 시나리오](/리스크_시나리오)
-- [시나리오 비교](/시나리오_비교)
-""")
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ℹ️ 안내")
-st.sidebar.info("각 페이지에서 필요한 정보를 입력하고 시뮬레이션 버튼을 클릭하세요.")
+# 사이드바 네비게이션 (주석 처리)
+# st.sidebar.title("💰 경제 자유도 시뮬레이션")
+# st.sidebar.markdown("---")
+# st.sidebar.markdown("### 📊 메뉴")
+# st.sidebar.markdown("""
+# - [홈](/)
+# - [소득 지출 분석](/소득_지출_분석)
+# """)
+# # - [리스크 시나리오](/리스크_시나리오)
+# # - [시나리오 비교](/시나리오_비교)
+# st.sidebar.markdown("---")
+# st.sidebar.markdown("### ℹ️ 안내")
+# st.sidebar.info("각 페이지에서 필요한 정보를 입력하고 시뮬레이션 버튼을 클릭하세요.")
 
 # 메인 콘텐츠
 st.title("💰 경제 자유도 시뮬레이션 도구")
@@ -61,7 +75,7 @@ st.header("🚀 빠른 시작 가이드")
 
 st.markdown("""
 ### 1단계: 기본 정보 입력
-왼쪽 사이드바에서 다음 정보를 입력하세요:
+각 페이지에서 다음 정보를 입력하세요:
 - 현재 나이 및 은퇴 예정 나이
 - 연봉 및 연봉 인상률
 - 월 지출 및 연간 고정 지출
@@ -70,8 +84,6 @@ st.markdown("""
 ### 2단계: 분석 페이지 선택
 상단 메뉴에서 원하는 분석 페이지를 선택하세요:
 - **소득 지출 분석**: 미래 자산 추정 및 재정 건전성 평가
-- **리스크 시나리오**: 다양한 위험 상황에서의 생존력 분석
-- **시나리오 비교**: 여러 재정 전략 비교
 
 ### 3단계: 결과 확인
 각 페이지에서 계산 결과와 인사이트를 확인하세요.
@@ -84,34 +96,40 @@ st.divider()
 # 기능 미리보기
 st.header("✨ 기능 미리보기")
 
-col1, col2, col3 = st.columns(3)
+st.subheader("📈 소득 지출 분석")
+st.markdown("""
+- 미래 자산 추정
+- 재정 건전성 등급
+- 월 저축 가능 금액
+- 인플레이션 반영 분석
+""")
+# col1, col2, col3 = st.columns(3)
+# with col1:
+#     st.subheader("📈 소득 지출 분석")
+#     st.markdown("""
+#     - 미래 자산 추정
+#     - 재정 건전성 등급
+#     - 월 저축 가능 금액
+#     - 인플레이션 반영 분석
+#     """)
 
-with col1:
-    st.subheader("📈 소득 지출 분석")
-    st.markdown("""
-    - 미래 자산 추정
-    - 재정 건전성 등급
-    - 월 저축 가능 금액
-    - 인플레이션 반영 분석
-    """)
+# with col2:
+#     st.subheader("⚠️ 리스크 시나리오")
+#     st.markdown("""
+#     - 소득 중단 생존 기간
+#     - 경제 위기 시나리오
+#     - 은퇴 후 생활 유지 가능 여부
+#     - 종합 위험도 점수
+#     """)
 
-with col2:
-    st.subheader("⚠️ 리스크 시나리오")
-    st.markdown("""
-    - 소득 중단 생존 기간
-    - 경제 위기 시나리오
-    - 은퇴 후 생활 유지 가능 여부
-    - 종합 위험도 점수
-    """)
-
-with col3:
-    st.subheader("🔄 시나리오 비교")
-    st.markdown("""
-    - 여러 재정 전략 비교
-    - 최적 시나리오 추천
-    - 시각적 비교 차트
-    - 인사이트 제공
-    """)
+# with col3:
+#     st.subheader("🔄 시나리오 비교")
+#     st.markdown("""
+#     - 여러 재정 전략 비교
+#     - 최적 시나리오 추천
+#     - 시각적 비교 차트
+#     - 인사이트 제공
+#     """)
 
 st.divider()
 

@@ -40,8 +40,23 @@ from modules.utils import (
 st.set_page_config(
     page_title="소득 지출 분석",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+# 페이지 네비게이션 사이드바 숨기기 (CSS)
+st.markdown("""
+<style>
+    /* 페이지 네비게이션 사이드바 숨기기 */
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+    /* 메인 컨텐츠 영역 패딩 조정 */
+    [data-testid="stAppViewContainer"] > div {
+        padding-left: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 세션 상태 초기화
 init_session_state()
