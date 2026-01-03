@@ -12,7 +12,7 @@ from modules.formatters import format_currency
 def clear_page_inputs(page_type: str):
     """
     페이지별 입력 필드 세션 상태 초기화
-    
+
     Args:
         page_type: 페이지 타입 ("income", "risk", "comparison")
     """
@@ -32,62 +32,70 @@ def clear_page_inputs(page_type: str):
         f"{page_type}_retirement_monthly_expense",
         f"{page_type}_retirement_medical_expense",
     ]
-    
+
     # 해당 페이지의 입력 필드만 초기화
     for key in page_input_keys:
         if key in st.session_state:
             del st.session_state[key]
-    
+
     # 공유 세션 상태도 초기화 (페이지별로 독립적으로 관리)
     shared_keys = [
-        'current_age', 'retirement_age', 'salary',
-        'monthly_fixed_expense', 'monthly_variable_expense',
-        'total_assets', 'total_debt'
+        "current_age",
+        "retirement_age",
+        "salary",
+        "monthly_fixed_expense",
+        "monthly_variable_expense",
+        "total_assets",
+        "total_debt",
     ]
-    
+
     for key in shared_keys:
         if key in st.session_state:
             del st.session_state[key]
 
 
 def render_page_input_form(
-    page_type: str,
-    required_fields: Optional[List[str]] = None
+    page_type: str, required_fields: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
     페이지별 입력 폼 렌더링
-    
+
     Args:
         page_type: 페이지 타입 ("income", "risk", "comparison")
         required_fields: 필수 입력 필드 리스트 (None이면 기본 필드 사용)
-        
+
     Returns:
         Dict[str, Any]: 입력 데이터 딕셔너리
     """
     # 현재 페이지 추적 및 페이지 변경 감지
     current_page_key = "_current_page"
     previous_page = st.session_state.get(current_page_key, None)
-    
+
     # 페이지가 변경되었거나 처음 로드된 경우 입력 필드 초기화
     if previous_page is None or previous_page != page_type:
         clear_page_inputs(page_type)
         st.session_state[current_page_key] = page_type
-    
+
     inputs = {}
-    
+
     # 기본 필수 필드
     if required_fields is None:
         required_fields = [
-            'current_age', 'retirement_age', 'salary',
-            'salary_growth_rate', 'monthly_fixed_expense',
-            'monthly_variable_expense', 'total_assets', 'total_debt'
+            "current_age",
+            "retirement_age",
+            "salary",
+            "salary_growth_rate",
+            "monthly_fixed_expense",
+            "monthly_variable_expense",
+            "total_assets",
+            "total_debt",
         ]
-    
+
     st.header("📋 입력 정보")
-    
+
     # 모든 정보를 한 row에 배치 (4개 컬럼)
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         st.subheader("기본 정보")
         current_age = st.number_input(
@@ -97,13 +105,13 @@ def render_page_input_form(
             value=st.session_state.get(f"{page_type}_current_age", None),
             step=1,
             key=f"{page_type}_current_age",
-            help="만 나이를 입력하세요"
+            help="만 나이를 입력하세요",
         )
-        inputs['current_age'] = current_age if current_age is not None else 0
-        
+        inputs["current_age"] = current_age if current_age is not None else 0
+
         # 현재 나이가 입력되어 있으면 최소값 설정
         min_retirement_age = (current_age + 1) if current_age and current_age > 0 else 1
-        
+
         retirement_age = st.number_input(
             "기대 은퇴 나이",
             min_value=min_retirement_age,
@@ -111,28 +119,30 @@ def render_page_input_form(
             value=st.session_state.get(f"{page_type}_retirement_age", None),
             step=1,
             key=f"{page_type}_retirement_age",
-            help="은퇴를 계획하는 나이입니다"
+            help="은퇴를 계획하는 나이입니다",
         )
-        inputs['retirement_age'] = retirement_age if retirement_age is not None else 0
-        
+        inputs["retirement_age"] = retirement_age if retirement_age is not None else 0
+
         # 기혼/미혼 선택
-        previous_marital_status = st.session_state.get(f"{page_type}_marital_status", '부부(2인 가구)')
+        previous_marital_status = st.session_state.get(
+            f"{page_type}_marital_status", "부부(2인 가구)"
+        )
         marital_status = st.selectbox(
             "가구 형태",
             options=["부부(2인 가구)", "1인 가구"],
-            index=0 if previous_marital_status == '부부(2인 가구)' else 1,
+            index=0 if previous_marital_status == "부부(2인 가구)" else 1,
             key=f"{page_type}_marital_status",
-            help="은퇴 후 가구 형태를 선택하세요. 선택에 따라 은퇴 후 생활비 기본값이 자동으로 변경됩니다."
+            help="은퇴 후 가구 형태를 선택하세요. 선택에 따라 은퇴 후 생활비 기본값이 자동으로 변경됩니다.",
         )
-        inputs['marital_status'] = marital_status
-        
+        inputs["marital_status"] = marital_status
+
         # 가구 형태가 변경되면 은퇴 후 생활비도 초기화
         if previous_marital_status != marital_status:
             # 가구 형태가 변경되었으므로 은퇴 후 생활비 세션 상태 초기화
             session_key_retirement = f"{page_type}_retirement_monthly_expense"
             if session_key_retirement in st.session_state:
                 del st.session_state[session_key_retirement]
-    
+
     with col2:
         st.subheader("소득 정보")
         salary = st.number_input(
@@ -141,10 +151,10 @@ def render_page_input_form(
             value=st.session_state.get(f"{page_type}_salary", None),
             step=100,
             key=f"{page_type}_salary",
-            help="세전 연봉을 입력하세요"
+            help="세전 연봉을 입력하세요",
         )
-        inputs['salary'] = salary if salary is not None else 0
-        
+        inputs["salary"] = salary if salary is not None else 0
+
         salary_growth_rate = st.slider(
             "연봉 증가율 (%)",
             min_value=0.0,
@@ -152,76 +162,430 @@ def render_page_input_form(
             value=float(st.session_state.get(f"{page_type}_salary_growth_rate", 3.0)),
             step=0.5,
             key=f"{page_type}_salary_growth_rate",
-            help="매년 연봉이 증가하는 비율"
+            help="매년 연봉이 증가하는 비율",
         )
-        inputs['salary_growth_rate'] = salary_growth_rate
-        
+        inputs["salary_growth_rate"] = salary_growth_rate
+
         bonus = st.number_input(
             "보너스 (만원)",
             min_value=0,
             value=st.session_state.get(f"{page_type}_bonus", 0),
             step=100,
             key=f"{page_type}_bonus",
-            help="연간 보너스 금액 (선택)"
+            help="연간 보너스 금액 (선택)",
         )
-        inputs['bonus'] = bonus
-    
+        inputs["bonus"] = bonus
+
     with col3:
         st.subheader("소비 정보")
+
+        # 세부 카테고리 입력값을 먼저 읽기 (expander 밖에서도 접근 가능하도록)
+        fixed_housing = st.session_state.get(f"{page_type}_fixed_housing", 0)
+        fixed_insurance = st.session_state.get(f"{page_type}_fixed_insurance", 0)
+        fixed_communication = st.session_state.get(
+            f"{page_type}_fixed_communication", 0
+        )
+        fixed_loan_interest = st.session_state.get(
+            f"{page_type}_fixed_loan_interest", 0
+        )
+        fixed_other = st.session_state.get(f"{page_type}_fixed_other", 0)
+        variable_food = st.session_state.get(f"{page_type}_variable_food", 0)
+        variable_transport = st.session_state.get(f"{page_type}_variable_transport", 0)
+        variable_leisure = st.session_state.get(f"{page_type}_variable_leisure", 0)
+        variable_shopping = st.session_state.get(f"{page_type}_variable_shopping", 0)
+        variable_other = st.session_state.get(f"{page_type}_variable_other", 0)
+
+        # 세부 카테고리 입력 expander
+        with st.expander("📝 세부 카테고리별 입력", expanded=False):
+            st.markdown("**고정비 세부 카테고리**")
+            fixed_housing = st.number_input(
+                "주거비 (월세/관리비) (만원)",
+                min_value=0,
+                value=fixed_housing,
+                step=10,
+                key=f"{page_type}_fixed_housing",
+            )
+            fixed_insurance = st.number_input(
+                "보험료 (만원)",
+                min_value=0,
+                value=fixed_insurance,
+                step=10,
+                key=f"{page_type}_fixed_insurance",
+            )
+            fixed_communication = st.number_input(
+                "통신비 (만원)",
+                min_value=0,
+                value=fixed_communication,
+                step=10,
+                key=f"{page_type}_fixed_communication",
+            )
+            fixed_loan_interest = st.number_input(
+                "대출이자 (만원)",
+                min_value=0,
+                value=fixed_loan_interest,
+                step=10,
+                key=f"{page_type}_fixed_loan_interest",
+            )
+            fixed_other = st.number_input(
+                "기타 고정비 (만원)",
+                min_value=0,
+                value=fixed_other,
+                step=10,
+                key=f"{page_type}_fixed_other",
+            )
+
+            st.divider()
+            st.markdown("**변동비 세부 카테고리**")
+            variable_food = st.number_input(
+                "식비 (만원)",
+                min_value=0,
+                value=variable_food,
+                step=10,
+                key=f"{page_type}_variable_food",
+            )
+            variable_transport = st.number_input(
+                "교통비 (만원)",
+                min_value=0,
+                value=variable_transport,
+                step=10,
+                key=f"{page_type}_variable_transport",
+            )
+            variable_leisure = st.number_input(
+                "여가비 (만원)",
+                min_value=0,
+                value=variable_leisure,
+                step=10,
+                key=f"{page_type}_variable_leisure",
+            )
+            variable_shopping = st.number_input(
+                "쇼핑 (만원)",
+                min_value=0,
+                value=variable_shopping,
+                step=10,
+                key=f"{page_type}_variable_shopping",
+            )
+            variable_other = st.number_input(
+                "기타 변동비 (만원)",
+                min_value=0,
+                value=variable_other,
+                step=10,
+                key=f"{page_type}_variable_other",
+            )
+
+        # 세부 카테고리 합계 재계산 (세션 상태에서 최신 값 읽기)
+        fixed_housing_val = st.session_state.get(f"{page_type}_fixed_housing", 0)
+        fixed_insurance_val = st.session_state.get(f"{page_type}_fixed_insurance", 0)
+        fixed_communication_val = st.session_state.get(
+            f"{page_type}_fixed_communication", 0
+        )
+        fixed_loan_interest_val = st.session_state.get(
+            f"{page_type}_fixed_loan_interest", 0
+        )
+        fixed_other_val = st.session_state.get(f"{page_type}_fixed_other", 0)
+        variable_food_val = st.session_state.get(f"{page_type}_variable_food", 0)
+        variable_transport_val = st.session_state.get(
+            f"{page_type}_variable_transport", 0
+        )
+        variable_leisure_val = st.session_state.get(f"{page_type}_variable_leisure", 0)
+        variable_shopping_val = st.session_state.get(
+            f"{page_type}_variable_shopping", 0
+        )
+        variable_other_val = st.session_state.get(f"{page_type}_variable_other", 0)
+
+        detailed_fixed_total = (
+            fixed_housing_val
+            + fixed_insurance_val
+            + fixed_communication_val
+            + fixed_loan_interest_val
+            + fixed_other_val
+        )
+        detailed_variable_total = (
+            variable_food_val
+            + variable_transport_val
+            + variable_leisure_val
+            + variable_shopping_val
+            + variable_other_val
+        )
+
+        # inputs에 저장할 때도 세션 상태에서 읽은 값 사용
+        fixed_housing = fixed_housing_val
+        fixed_insurance = fixed_insurance_val
+        fixed_communication = fixed_communication_val
+        fixed_loan_interest = fixed_loan_interest_val
+        fixed_other = fixed_other_val
+        variable_food = variable_food_val
+        variable_transport = variable_transport_val
+        variable_leisure = variable_leisure_val
+        variable_shopping = variable_shopping_val
+        variable_other = variable_other_val
+
+        # 세부 입력이 있으면 자동으로 세션 상태 업데이트
+        if detailed_fixed_total > 0 or detailed_variable_total > 0:
+            st.session_state[f"{page_type}_monthly_fixed_expense"] = (
+                detailed_fixed_total
+            )
+            st.session_state[f"{page_type}_monthly_variable_expense"] = (
+                detailed_variable_total
+            )
+
+        # 기본 입력 필드 (세부 입력 합계 또는 직접 입력)
+        # 세부 입력 합계가 있으면 그것을 기본값으로 사용
+        default_fixed = (
+            detailed_fixed_total
+            if detailed_fixed_total > 0
+            else st.session_state.get(f"{page_type}_monthly_fixed_expense", None)
+        )
+        default_variable = (
+            detailed_variable_total
+            if detailed_variable_total > 0
+            else st.session_state.get(f"{page_type}_monthly_variable_expense", None)
+        )
+
         monthly_fixed_expense = st.number_input(
             "월간 고정비 (만원)",
             min_value=0,
-            value=st.session_state.get(f"{page_type}_monthly_fixed_expense", None),
+            value=default_fixed,
             step=10,
             key=f"{page_type}_monthly_fixed_expense",
-            help="주거비, 보험료, 통신비, 대출이자 등 고정 지출"
+            help="주거비, 보험료, 통신비, 대출이자 등 고정 지출 (세부 카테고리 입력 시 자동 합계)",
         )
-        monthly_fixed_expense_value = monthly_fixed_expense if monthly_fixed_expense is not None else 0
-        inputs['monthly_fixed_expense'] = monthly_fixed_expense_value
-        
+        # 세부 입력이 있으면 세부 입력 합계를 우선 사용
+        if detailed_fixed_total > 0:
+            monthly_fixed_expense_value = detailed_fixed_total
+        else:
+            monthly_fixed_expense_value = (
+                monthly_fixed_expense if monthly_fixed_expense is not None else 0
+            )
+        inputs["monthly_fixed_expense"] = monthly_fixed_expense_value
+
         monthly_variable_expense = st.number_input(
             "월간 변동비 (만원)",
             min_value=0,
-            value=st.session_state.get(f"{page_type}_monthly_variable_expense", None),
+            value=default_variable,
             step=10,
             key=f"{page_type}_monthly_variable_expense",
-            help="식비, 교통비, 여가비, 쇼핑 등 변동 지출"
+            help="식비, 교통비, 여가비, 쇼핑 등 변동 지출 (세부 카테고리 입력 시 자동 합계)",
         )
-        monthly_variable_expense_value = monthly_variable_expense if monthly_variable_expense is not None else 0
-        inputs['monthly_variable_expense'] = monthly_variable_expense_value
-        
+        # 세부 입력이 있으면 세부 입력 합계를 우선 사용
+        if detailed_variable_total > 0:
+            monthly_variable_expense_value = detailed_variable_total
+        else:
+            monthly_variable_expense_value = (
+                monthly_variable_expense if monthly_variable_expense is not None else 0
+            )
+        inputs["monthly_variable_expense"] = monthly_variable_expense_value
+
         # 총 월 지출 표시 (읽기 전용)
-        monthly_total_expense = monthly_fixed_expense_value + monthly_variable_expense_value
+        monthly_total_expense = (
+            monthly_fixed_expense_value + monthly_variable_expense_value
+        )
         st.metric("총 월 지출", format_currency(monthly_total_expense))
-    
+
+        # 세부 카테고리 정보도 inputs에 저장
+        inputs["fixed_housing"] = fixed_housing
+        inputs["fixed_insurance"] = fixed_insurance
+        inputs["fixed_communication"] = fixed_communication
+        inputs["fixed_loan_interest"] = fixed_loan_interest
+        inputs["fixed_other"] = fixed_other
+        inputs["variable_food"] = variable_food
+        inputs["variable_transport"] = variable_transport
+        inputs["variable_leisure"] = variable_leisure
+        inputs["variable_shopping"] = variable_shopping
+        inputs["variable_other"] = variable_other
+
     with col4:
         st.subheader("자산 정보")
+
+        # 세부 자산 입력값을 먼저 읽기 (expander 밖에서도 접근 가능하도록)
+        asset_real_estate = st.session_state.get(f"{page_type}_asset_real_estate", 0)
+        asset_deposit_amount = st.session_state.get(
+            f"{page_type}_asset_deposit_amount", 0
+        )
+        asset_deposit_rate = float(
+            st.session_state.get(f"{page_type}_asset_deposit_rate", 0.0)
+        )
+        asset_savings_amount = st.session_state.get(
+            f"{page_type}_asset_savings_amount", 0
+        )
+        asset_savings_rate = float(
+            st.session_state.get(f"{page_type}_asset_savings_rate", 0.0)
+        )
+        asset_stock_amount = st.session_state.get(f"{page_type}_asset_stock_amount", 0)
+        asset_stock_return = float(
+            st.session_state.get(f"{page_type}_asset_stock_return", 0.0)
+        )
+        asset_other = st.session_state.get(f"{page_type}_asset_other", 0)
+
+        # 세부 카테고리 입력 expander
+        with st.expander("📝 세부 카테고리별 입력", expanded=False):
+            st.markdown("**자산 세부 카테고리**")
+            asset_real_estate = st.number_input(
+                "부동산 (만원)",
+                min_value=0,
+                value=asset_real_estate,
+                step=100,
+                key=f"{page_type}_asset_real_estate",
+            )
+
+            col_deposit1, col_deposit2 = st.columns(2)
+            with col_deposit1:
+                asset_deposit_amount = st.number_input(
+                    "예금 금액 (만원)",
+                    min_value=0,
+                    value=asset_deposit_amount,
+                    step=100,
+                    key=f"{page_type}_asset_deposit_amount",
+                )
+            with col_deposit2:
+                asset_deposit_rate = st.number_input(
+                    "예금 금리 (%)",
+                    min_value=0.0,
+                    max_value=20.0,
+                    value=asset_deposit_rate,
+                    step=0.1,
+                    key=f"{page_type}_asset_deposit_rate",
+                    format="%.2f",
+                )
+
+            col_savings1, col_savings2 = st.columns(2)
+            with col_savings1:
+                asset_savings_amount = st.number_input(
+                    "적금 금액 (만원)",
+                    min_value=0,
+                    value=asset_savings_amount,
+                    step=100,
+                    key=f"{page_type}_asset_savings_amount",
+                )
+            with col_savings2:
+                asset_savings_rate = st.number_input(
+                    "적금 금리 (%)",
+                    min_value=0.0,
+                    max_value=20.0,
+                    value=asset_savings_rate,
+                    step=0.1,
+                    key=f"{page_type}_asset_savings_rate",
+                    format="%.2f",
+                )
+
+            col_stock1, col_stock2 = st.columns(2)
+            with col_stock1:
+                asset_stock_amount = st.number_input(
+                    "주식 금액 (만원)",
+                    min_value=0,
+                    value=asset_stock_amount,
+                    step=100,
+                    key=f"{page_type}_asset_stock_amount",
+                )
+            with col_stock2:
+                asset_stock_return = st.number_input(
+                    "주식 수익률 (%)",
+                    min_value=-50.0,
+                    max_value=100.0,
+                    value=asset_stock_return,
+                    step=0.5,
+                    key=f"{page_type}_asset_stock_return",
+                    format="%.2f",
+                )
+
+            asset_other = st.number_input(
+                "기타 자산 (만원)",
+                min_value=0,
+                value=asset_other,
+                step=100,
+                key=f"{page_type}_asset_other",
+            )
+
+        # 세부 카테고리 합계 계산 (세션 상태에서 최신 값 읽기)
+        asset_real_estate_val = st.session_state.get(
+            f"{page_type}_asset_real_estate", 0
+        )
+        asset_deposit_amount_val = st.session_state.get(
+            f"{page_type}_asset_deposit_amount", 0
+        )
+        asset_savings_amount_val = st.session_state.get(
+            f"{page_type}_asset_savings_amount", 0
+        )
+        asset_stock_amount_val = st.session_state.get(
+            f"{page_type}_asset_stock_amount", 0
+        )
+        asset_other_val = st.session_state.get(f"{page_type}_asset_other", 0)
+        asset_deposit_rate = float(
+            st.session_state.get(f"{page_type}_asset_deposit_rate", 0.0)
+        )
+        asset_savings_rate = float(
+            st.session_state.get(f"{page_type}_asset_savings_rate", 0.0)
+        )
+        asset_stock_return = float(
+            st.session_state.get(f"{page_type}_asset_stock_return", 0.0)
+        )
+
+        detailed_assets_total = (
+            asset_real_estate_val
+            + asset_deposit_amount_val
+            + asset_savings_amount_val
+            + asset_stock_amount_val
+            + asset_other_val
+        )
+
+        # inputs에 저장할 때도 세션 상태에서 읽은 값 사용
+        asset_real_estate = asset_real_estate_val
+        asset_deposit_amount = asset_deposit_amount_val
+        asset_savings_amount = asset_savings_amount_val
+        asset_stock_amount = asset_stock_amount_val
+        asset_other = asset_other_val
+
+        # 세부 입력이 있으면 자동으로 세션 상태 업데이트
+        if detailed_assets_total > 0:
+            st.session_state[f"{page_type}_total_assets"] = detailed_assets_total
+
+        # 기본 입력 필드 (세부 입력 합계 또는 직접 입력)
+        # 세부 입력 합계가 있으면 그것을 기본값으로 사용
+        default_assets = (
+            detailed_assets_total
+            if detailed_assets_total > 0
+            else st.session_state.get(f"{page_type}_total_assets", None)
+        )
+
         total_assets = st.number_input(
             "총 자산 (만원)",
             min_value=0,
-            value=st.session_state.get(f"{page_type}_total_assets", None),
+            value=default_assets,
             step=100,
             key=f"{page_type}_total_assets",
-            help="현금, 예금, 주식 등 모든 자산의 합계"
+            help="현금, 예금, 주식 등 모든 자산의 합계 (세부 카테고리 입력 시 자동 합계)",
         )
-        inputs['total_assets'] = total_assets if total_assets is not None else 0
-        
+        # 세부 입력이 있으면 세부 입력 합계를 우선 사용
+        if detailed_assets_total > 0:
+            inputs["total_assets"] = detailed_assets_total
+        else:
+            inputs["total_assets"] = total_assets if total_assets is not None else 0
+
         total_debt = st.number_input(
             "총 부채 (만원)",
             min_value=0,
             value=st.session_state.get(f"{page_type}_total_debt", None),
             step=100,
             key=f"{page_type}_total_debt",
-            help="대출, 카드 빚 등 모든 부채의 합계"
+            help="대출, 카드 빚 등 모든 부채의 합계",
         )
-        inputs['total_debt'] = total_debt if total_debt is not None else 0
-    
+        inputs["total_debt"] = total_debt if total_debt is not None else 0
+
+        # 세부 자산 정보도 inputs에 저장
+        inputs["asset_real_estate"] = asset_real_estate
+        inputs["asset_deposit_amount"] = asset_deposit_amount
+        inputs["asset_deposit_rate"] = asset_deposit_rate
+        inputs["asset_savings_amount"] = asset_savings_amount
+        inputs["asset_savings_rate"] = asset_savings_rate
+        inputs["asset_stock_amount"] = asset_stock_amount
+        inputs["asset_stock_return"] = asset_stock_return
+        inputs["asset_other"] = asset_other
+
     # 추가 설정 (인플레이션율, 은퇴 후 생활비)
     st.divider()
     st.subheader("⚙️ 추가 설정")
-    
+
     col_setting1, col_setting2, col_setting3 = st.columns(3)
-    
+
     with col_setting1:
         inflation_rate = st.slider(
             "연간 물가 상승률 (인플레이션율) (%)",
@@ -230,39 +594,52 @@ def render_page_input_form(
             value=float(st.session_state.get(f"{page_type}_inflation_rate", 2.5)),
             step=0.1,
             key=f"{page_type}_inflation_rate",
-            help="연간 물가 상승률입니다. 기본값은 2.5%입니다."
+            help="연간 물가 상승률입니다. 기본값은 2.5%입니다.",
         )
-        inputs['inflation_rate'] = inflation_rate
-    
+        inputs["inflation_rate"] = inflation_rate
+
     with col_setting2:
         # 은퇴 후 생활비 계산 (가구 형태에 따라 동적 기본값)
-        current_monthly_total = monthly_fixed_expense_value + monthly_variable_expense_value
+        current_monthly_total = (
+            monthly_fixed_expense_value + monthly_variable_expense_value
+        )
         # 가구 형태는 세션 상태에서 가져오되, 없으면 inputs에서 가져옴
-        marital_status = st.session_state.get(f"{page_type}_marital_status", inputs.get('marital_status', '부부(2인 가구)'))
-        
+        marital_status = st.session_state.get(
+            f"{page_type}_marital_status",
+            inputs.get("marital_status", "부부(2인 가구)"),
+        )
+
         # 가구 형태에 따른 평균값 설정
-        if marital_status == '부부(2인 가구)':
+        if marital_status == "부부(2인 가구)":
             avg_retirement_expense = 318  # 만원 단위 (부부 기준 평균)
             min_expense = 200  # 최소값
             max_expense = 500  # 최대값
-            help_text = "은퇴 후 예상 월 생활비입니다. 평균값: 부부 기준 월 318만원 (평균)"
+            help_text = (
+                "은퇴 후 예상 월 생활비입니다. 평균값: 부부 기준 월 318만원 (평균)"
+            )
         else:  # 1인 가구
             avg_retirement_expense = 170  # 만원 단위 (1인 가구 평균)
             min_expense = 100  # 최소값
             max_expense = 300  # 최대값
-            help_text = "은퇴 후 예상 월 생활비입니다. 평균값: 1인 가구 월 170만원 (평균)"
-        
+            help_text = (
+                "은퇴 후 예상 월 생활비입니다. 평균값: 1인 가구 월 170만원 (평균)"
+            )
+
         # 현재 생활비와 평균값 중 더 적절한 값을 기본값으로 사용
         if current_monthly_total > 0:
             # 현재 생활비를 기준으로 평균값과 비교하여 적절한 값 선택
-            default_retirement_expense = max(avg_retirement_expense, current_monthly_total * 0.7)
+            default_retirement_expense = max(
+                avg_retirement_expense, current_monthly_total * 0.7
+            )
         else:
             default_retirement_expense = avg_retirement_expense
-        
+
         # 가구 형태가 변경되었거나 세션에 값이 없으면 기본값 사용
         session_key = f"{page_type}_retirement_monthly_expense"
-        current_marital_status = st.session_state.get(f"{page_type}_marital_status", marital_status)
-        
+        current_marital_status = st.session_state.get(
+            f"{page_type}_marital_status", marital_status
+        )
+
         # 가구 형태가 변경되었거나 세션에 값이 없으면 새로운 기본값 사용
         if session_key not in st.session_state:
             # 처음 로드하는 경우
@@ -272,13 +649,15 @@ def render_page_input_form(
             current_value = default_retirement_expense
         else:
             # 기존 값 사용 (범위 내로 조정)
-            existing_value = st.session_state.get(session_key, default_retirement_expense)
+            existing_value = st.session_state.get(
+                session_key, default_retirement_expense
+            )
             # 범위가 변경되었을 수 있으므로 범위 내로 조정
             current_value = max(min_expense, min(max_expense, existing_value))
             # 범위 밖이면 기본값 사용
             if existing_value < min_expense or existing_value > max_expense:
                 current_value = default_retirement_expense
-        
+
         retirement_monthly_expense = st.slider(
             "은퇴 후 월 생활비 (만원)",
             min_value=min_expense,
@@ -286,10 +665,10 @@ def render_page_input_form(
             value=int(current_value),
             step=10,
             key=session_key,
-            help=help_text
+            help=help_text,
         )
-        inputs['retirement_monthly_expense'] = retirement_monthly_expense
-        
+        inputs["retirement_monthly_expense"] = retirement_monthly_expense
+
         if current_monthly_total > 0:
             ratio = (retirement_monthly_expense / current_monthly_total) * 100
             st.caption(f"현재 생활비 대비 {ratio:.1f}%")
@@ -300,49 +679,53 @@ def render_page_input_form(
             "은퇴 후 월 의료비 (만원)",
             min_value=0,
             max_value=100,
-            value=int(st.session_state.get(f"{page_type}_retirement_medical_expense", avg_medical_expense)),
+            value=int(
+                st.session_state.get(
+                    f"{page_type}_retirement_medical_expense", avg_medical_expense
+                )
+            ),
             step=5,
             key=f"{page_type}_retirement_medical_expense",
-            help=f"은퇴 후 예상되는 추가 의료비입니다. 65세 이상 평균 월 45만원 (통계 기반)"
+            help=f"은퇴 후 예상되는 추가 의료비입니다. 65세 이상 평균 월 45만원 (통계 기반)",
         )
-        inputs['retirement_medical_expense'] = retirement_medical_expense
+        inputs["retirement_medical_expense"] = retirement_medical_expense
         st.caption(f"📊 평균값: {avg_medical_expense}만원")
-    
+
     return inputs
 
 
 def check_inputs_complete(inputs: Dict[str, Any], required_fields: List[str]) -> bool:
     """
     필수 입력 필드가 모두 채워졌는지 확인
-    
+
     Args:
         inputs: 입력 데이터 딕셔너리
         required_fields: 필수 필드 리스트
-        
+
     Returns:
         bool: 모든 필수 필드가 입력되었으면 True
     """
     for field in required_fields:
         if field not in inputs:
             return False
-        
+
         value = inputs[field]
-        
+
         # None이면 입력되지 않음
         if value is None:
             return False
-        
+
         # 숫자 필드의 경우 0보다 작으면 안됨
         if isinstance(value, (int, float)) and value < 0:
             return False
-        
+
         # 숫자 필드의 경우 0이면 입력되지 않은 것으로 간주 (단, 부채는 0도 유효)
         if isinstance(value, (int, float)) and value == 0:
-            if field == 'total_debt':
+            if field == "total_debt":
                 continue  # 부채는 0도 유효한 값
-            if field == 'bonus':
+            if field == "bonus":
                 continue  # 보너스는 0도 유효한 값
             # 나머지 필드는 0이면 입력되지 않은 것으로 간주
             return False
-    
+
     return True

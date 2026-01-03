@@ -12,11 +12,12 @@ st.set_page_config(
     page_title="경제 자유도 시뮬레이션",
     page_icon="💰",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
 # 페이지 네비게이션 사이드바 숨기기 (CSS)
-st.markdown("""
+st.markdown(
+    """
 <style>
     /* 페이지 네비게이션 사이드바 숨기기 */
     [data-testid="stSidebarNav"] {
@@ -27,7 +28,9 @@ st.markdown("""
         padding-left: 1rem;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # 세션 상태 초기화
 init_session_state()
@@ -56,7 +59,8 @@ st.markdown("---")
 # 프로젝트 소개
 st.header("📊 프로젝트 소개")
 
-st.markdown("""
+st.markdown(
+    """
 이 도구는 여러분의 재정 상황을 분석하고, 다양한 경제 시나리오에서의 미래 자산을 예측합니다.
 
 ### 목적
@@ -69,14 +73,16 @@ st.markdown("""
 1. **소득 및 지출 분석**: 현재 소비 패턴 기반 미래 자산 예측
 2. **리스크 시나리오**: 경제 위기, 소득 중단 등 다양한 리스크 분석
 3. **시나리오 비교**: 여러 재정 전략의 결과 비교
-""")
+"""
+)
 
 st.divider()
 
 # 빠른 시작 가이드
 st.header("🚀 빠른 시작 가이드")
 
-st.markdown("""
+st.markdown(
+    """
 ### 1단계: 기본 정보 입력
 각 페이지에서 다음 정보를 입력하세요:
 - 현재 나이 및 은퇴 예정 나이
@@ -90,7 +96,8 @@ st.markdown("""
 
 ### 3단계: 결과 확인
 각 페이지에서 계산 결과와 인사이트를 확인하세요.
-""")
+"""
+)
 
 st.info("💡 **팁**: 입력값을 변경하면 모든 페이지의 결과가 자동으로 업데이트됩니다!")
 
@@ -100,12 +107,14 @@ st.divider()
 st.header("✨ 기능 미리보기")
 
 st.subheader("📈 소득 지출 분석")
-st.markdown("""
+st.markdown(
+    """
 - 미래 자산 추정
 - 재정 건전성 등급
 - 월 저축 가능 금액
 - 인플레이션 반영 분석
-""")
+"""
+)
 # col1, col2, col3 = st.columns(3)
 # with col1:
 #     st.subheader("📈 소득 지출 분석")
@@ -139,7 +148,8 @@ st.divider()
 # 면책 조항
 st.header("⚠️ 면책 조항 및 데이터 출처")
 
-st.warning("""
+st.warning(
+    """
 **중요 안내**
 
 이 도구는 교육 및 참고 목적으로 제공됩니다. 실제 투자 및 재정 결정에 앞서 전문가의 조언을 구하시기 바랍니다.
@@ -147,10 +157,12 @@ st.warning("""
 - 계산 결과는 입력 데이터와 가정에 기반한 추정치입니다.
 - 실제 경제 상황과 다를 수 있습니다.
 - 투자 손실에 대한 책임을 지지 않습니다.
-""")
+"""
+)
 
 with st.expander("📚 데이터 출처 및 가정"):
-    st.markdown("""
+    st.markdown(
+        """
     ### 사용된 데이터 출처
     
     - **인플레이션**: 한국은행 경제통계시스템(ECOS) 기준
@@ -166,15 +178,18 @@ with st.expander("📚 데이터 출처 및 가정"):
     - 은퇴 후 생활비는 현재 월 지출 기준
     
     자세한 내용은 각 페이지의 데이터 출처 섹션을 참고하세요.
-    """)
+    """
+    )
 
 st.divider()
 
 # 하단 정보
-st.markdown("""
+st.markdown(
+    """
 <div style='text-align: center; color: gray;'>
     <p>경제 자유도 시뮬레이션 도구 v1.0</p>
     <p>Made with ❤️ for better financial planning</p>
 </div>
-""", unsafe_allow_html=True)
-
+""",
+    unsafe_allow_html=True,
+)
