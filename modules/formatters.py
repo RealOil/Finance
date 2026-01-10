@@ -12,17 +12,20 @@ def format_currency(value: float, unit: str = "만원") -> str:
     금액 포맷팅
 
     Args:
-        value: 금액 (만원 단위)
+        value: 금액 (원 단위)
         unit: 단위 (기본값: "만원")
 
     Returns:
-        str: 포맷팅된 금액 문자열
+        str: 포맷팅된 금액 문자열 (만원 단위로 표시)
     """
     if value is None:
         return f"0{unit}"
 
+    # 원 단위를 만원 단위로 변환
+    value_in_manwon = value / 10000.0
+
     # 반올림
-    rounded_value = round(value)
+    rounded_value = round(value_in_manwon)
 
     # 천 단위 구분 기호 추가
     formatted = f"{rounded_value:,}"

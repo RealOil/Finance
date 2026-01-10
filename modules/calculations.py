@@ -35,7 +35,7 @@ def calculate_portfolio_return_rate(
 
     Args:
         asset_items: 자산 항목 리스트 (예금, 적금, 부동산, 주식 등)
-        total_assets: 총 자산 (만원 단위)
+        total_assets: 총 자산 (원 단위)
 
     Returns:
         float: 가중 평균 연간 수익률 (%)
@@ -43,8 +43,8 @@ def calculate_portfolio_return_rate(
     if not asset_items or total_assets <= 0:
         return 0.0
 
-    # 총 자산을 원 단위로 변환
-    total_assets_won = total_assets * 10000
+    # 총 자산은 이미 원 단위
+    total_assets_won = total_assets
 
     total_weighted_return = 0.0
     total_weight = 0.0
@@ -105,6 +105,12 @@ def calculate_portfolio_return_rate(
             annual_return = return_rate
             weight = amount
 
+        elif asset_type == "기타":
+            amount = item.get("amount", 0)  # 원 단위
+            return_rate = item.get("return_rate", 0.0)
+            annual_return = return_rate if return_rate > 0 else 0.0
+            weight = amount
+
         if weight > 0:
             total_weighted_return += annual_return * weight
             total_weight += weight
@@ -126,39 +132,44 @@ def calculate_monthly_savings(inputs: Dict[str, Any]) -> float:
         inputs: 입력 데이터 딕셔너리
 
     Returns:
-        float: 월 저축 가능액 (만원)
+        float: 월 저축 가능액 (원)
     """
-    salary = inputs.get("salary", 0)
-    bonus = inputs.get("bonus", 0)
+    salary = inputs.get("salary", 0)  # 원 단위
+    bonus = inputs.get("bonus", 0)  # 원 단위
 
     # 기존 필드 호환성 (마이그레이션 지원)
     if "monthly_fixed_expense" in inputs and "monthly_variable_expense" in inputs:
-        monthly_fixed_expense = inputs.get("monthly_fixed_expense", 0)
-        monthly_variable_expense = inputs.get("monthly_variable_expense", 0)
+        monthly_fixed_expense = inputs.get("monthly_fixed_expense", 0)  # 원 단위
+        monthly_variable_expense = inputs.get("monthly_variable_expense", 0)  # 원 단위
         monthly_total_expense = monthly_fixed_expense + monthly_variable_expense
     else:
-        # 기존 방식 (하위 호환성)
+        # 기존 방식 (하위 호환성 - 만원 단위일 수 있음)
         monthly_expense = inputs.get("monthly_expense", 0)
         annual_fixed_expense = inputs.get("annual_fixed_expense", 0)
+        # 만원 단위로 저장된 기존 데이터 호환
+        if monthly_expense < 1000000:  # 100만원 미만이면 만원 단위로 간주
+            monthly_expense = monthly_expense * 10000
+        if annual_fixed_expense < 10000000:  # 1천만원 미만이면 만원 단위로 간주
+            annual_fixed_expense = annual_fixed_expense * 10000
         monthly_total_expense = monthly_expense + (annual_fixed_expense / 12)
 
     # 대출 상환액 추가 (대출 항목이 있는 경우)
     debt_items = inputs.get("debt_items", [])
-    total_monthly_debt_payment = inputs.get("total_monthly_debt_payment", 0)
+    total_monthly_debt_payment = inputs.get("total_monthly_debt_payment", 0)  # 원 단위
 
     # 대출 항목에서 월 상환액 합계 계산 (total_monthly_debt_payment가 없으면 직접 계산)
     if total_monthly_debt_payment == 0 and debt_items:
         total_monthly_debt_payment = sum(
-            item.get("monthly_payment", 0) for item in debt_items
+            item.get("monthly_payment", 0) for item in debt_items  # 원 단위
         )
 
     # 월 지출에 대출 상환액 포함
     monthly_total_expense += total_monthly_debt_payment
 
     # 월 소득 계산
-    monthly_income = (salary + bonus) / 12
+    monthly_income = (salary + bonus) / 12  # 원 단위
 
-    # 월 저축 가능액
+    # 월 저축 가능액 (원 단위)
     monthly_savings = monthly_income - monthly_total_expense
 
     return monthly_savings
@@ -528,21 +539,37 @@ def calculate_future_assets(
         # 연간 순 저축액 (대출 원금 일시 상환액은 별도 처리)
         annual_savings = annual_income - annual_expense
 
-        # 월 저축/투자 계획 추가
+        # 월 저축/투자 계획 추가 (인플레이션 반영)
+        # 사용자가 설정한 월 저축/투자 계획은 명목 가치 기준이므로 인플레이션을 반영
         monthly_investment_items = inputs.get("monthly_investment_items", [])
-        annual_investment_total = 0.0  # 만원 단위
+        annual_investment_total = 0.0  # 원 단위
         if monthly_investment_items:
-            monthly_investment_total = (
-                sum(item.get("monthly_amount", 0) for item in monthly_investment_items)
-                / 10000.0
-            )  # 만원 단위로 변환
-            annual_investment_total = monthly_investment_total * 12
+            # 월 저축/투자 계획 총액 계산 (원 단위)
+            monthly_investment_total = sum(
+                item.get("monthly_amount", 0) for item in monthly_investment_items
+            )  # 원 단위
+            # 인플레이션 반영한 월 저축/투자 금액 (명목 가치 기준으로 매년 증가)
+            inflated_monthly_investment = apply_inflation(
+                monthly_investment_total, year, inflation_rate
+            )
+            annual_investment_total = inflated_monthly_investment * 12
 
-        # 총 연간 저축액 = (소득 - 지출) + (월 저축/투자 계획 합계 × 12)
-        # 주의: 연간 저축액에는 대출 원금 상환이 포함되어 있음 (원리금 상환의 경우)
-        # 일반 만기 원금 상환의 만기 일시 상환 원금은 별도로 처리 필요
-        # (전세자금 대출은 보증금 반환으로 상환되므로 자산 차감 없음)
-        total_annual_savings = annual_savings + annual_investment_total
+        # 총 연간 저축액 = (소득 - 지출) + (월 저축/투자 계획 합계 × 12, 인플레이션 반영)
+        # 주의:
+        # - annual_savings는 이미 연봉 상승과 지출 인플레이션을 반영한 실제 저축 가능 금액
+        # - annual_investment_total은 사용자가 목표로 설정한 월 저축/투자 계획 (인플레이션 반영)
+        # - 둘 중 더 작은 값을 사용하거나, 실제로는 annual_savings가 이미 실제 가능 금액이므로
+        #   annual_investment_total은 "목표 저축액"으로 해석할 수 있음
+        # 현재 로직: actual_savings = min(annual_savings, annual_investment_total) + max(0, annual_savings - annual_investment_total)
+        # 하지만 이는 복잡하므로, 실제 저축 가능 금액과 목표 저축액 중 실제 가능 금액을 우선 사용
+        # 목표 저축액이 실제 가능 금액보다 크면 목표 달성 불가
+        actual_annual_savings = (
+            min(annual_savings, annual_investment_total)
+            if annual_investment_total > 0
+            else annual_savings
+        )
+        # 목표 저축액이 실제 가능 금액보다 작거나 같으면 목표 달성, 더 크면 실제 가능 금액만 저축
+        total_annual_savings = actual_annual_savings
 
         # 자산 증가 (포트폴리오 수익률 반영)
         if portfolio_return_rate > 0:
@@ -590,8 +617,12 @@ def calculate_future_assets(
         years_after_retirement = life_expectancy - retirement_age
 
         # 은퇴 후 생활비 정보
-        retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)
-        retirement_medical_expense = inputs.get("retirement_medical_expense", 45)
+        retirement_monthly_expense = inputs.get(
+            "retirement_monthly_expense", 0
+        )  # 원 단위
+        retirement_medical_expense = inputs.get(
+            "retirement_medical_expense", 450000
+        )  # 원 단위 (기본값 45만원)
 
         # 은퇴 후 생활비 계산
         if retirement_monthly_expense > 0:
@@ -840,9 +871,13 @@ def calculate_retirement_sustainability(inputs: Dict[str, Any]) -> Dict[str, Any
 
     # 은퇴 후 생활비 계산 (개선된 버전 - 평균값 기반, 기혼/미혼 구분)
     # 사용자가 직접 입력한 은퇴 후 생활비 사용 (평균값 기반 기본값 제공)
-    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)
+    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)  # 원 단위
 
     # 은퇴 후 생활비가 입력되지 않은 경우, 기존 방식 사용 (하위 호환성)
+    # 기존 데이터 호환: 만원 단위로 저장된 기존 데이터 변환
+    if retirement_monthly_expense > 0 and retirement_monthly_expense < 1000000:
+        retirement_monthly_expense = retirement_monthly_expense * 10000
+
     if retirement_monthly_expense == 0:
         # 기존 방식: 현재 생활비 비율 기반
         retirement_expense_ratio = inputs.get("retirement_expense_ratio", 80.0) / 100.0
@@ -859,8 +894,11 @@ def calculate_retirement_sustainability(inputs: Dict[str, Any]) -> Dict[str, Any
     # 추가 의료비 반영 (인플레이션 반영)
     # 65세 이상 평균 의료비: 연평균 543만원 → 월 약 45만원
     retirement_medical_expense = inputs.get(
-        "retirement_medical_expense", 45
-    )  # 기본값 45만원
+        "retirement_medical_expense", 450000
+    )  # 원 단위 (기본값 45만원)
+    # 기존 데이터 호환: 만원 단위로 저장된 기존 데이터 변환 (100만원 미만이면 만원 단위로 간주)
+    if retirement_medical_expense < 1000000:
+        retirement_medical_expense = retirement_medical_expense * 10000
     retirement_medical_expense_inflated = apply_inflation(
         retirement_medical_expense, years_to_retirement, inflation_rate
     )
@@ -1210,7 +1248,7 @@ def calculate_retirement_goal(
 
     Args:
         inputs: 입력 데이터 딕셔너리
-        monthly_contribution: 매달 저축 금액 (만원)
+        monthly_contribution: 매달 저축 금액 (원)
         annual_return_rate: 연간 수익률 (%)
         withdrawal_rate: 현금화율 (%) - 기본값 4%
 
@@ -1219,10 +1257,20 @@ def calculate_retirement_goal(
     """
     current_age = inputs.get("current_age", 30)
     retirement_age = inputs.get("retirement_age", 60)
-    current_assets = inputs.get("total_assets", 0)
-    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)
-    retirement_medical_expense = inputs.get("retirement_medical_expense", 0)
+    current_assets = inputs.get("total_assets", 0)  # 원 단위
+    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)  # 원 단위
+    retirement_medical_expense = inputs.get("retirement_medical_expense", 0)  # 원 단위
     inflation_rate = inputs.get("inflation_rate", 2.5)
+
+    # 기존 데이터 호환: 만원 단위로 저장된 기존 데이터 변환
+    if retirement_monthly_expense > 0 and retirement_monthly_expense < 1000000:
+        retirement_monthly_expense = retirement_monthly_expense * 10000
+    if retirement_medical_expense > 0 and retirement_medical_expense < 1000000:
+        retirement_medical_expense = retirement_medical_expense * 10000
+
+    # 기존 데이터 호환: monthly_contribution이 만원 단위로 전달되었을 수 있음
+    if monthly_contribution < 1000000:  # 100만원 미만이면 만원 단위로 간주
+        monthly_contribution = monthly_contribution * 10000
 
     # 은퇴까지 남은 연수
     years_to_retirement = retirement_age - current_age
@@ -1252,27 +1300,63 @@ def calculate_retirement_goal(
     target_assets = annual_expense_needed / (withdrawal_rate / 100)
 
     # 복리 계산으로 예상 자산 계산
-    # FV = PV * (1 + r)^n + PMT * (((1 + r)^n - 1) / r)
-    # FV: 미래 가치, PV: 현재 가치, PMT: 매달 저축, r: 월 수익률, n: 기간(월)
+    # 연봉 상승률과 물가 상승률을 고려하여 매년 저축 가능 금액이 변동함
+    # 연봉 상승률이 물가 상승률보다 크면 실질 저축 가능 금액이 증가
+    # 물가 상승률이 연봉 상승률보다 크면 실질 저축 가능 금액이 감소
+    salary_growth_rate = inputs.get("salary_growth_rate", 3.0)
+
+    # 실질 저축 증가율 = 연봉 상승률 - 물가 상승률 (실질 구매력 기준)
+    # 하지만 명목 가치로 저축액이 증가하는 것이므로, 연봉 상승률을 기준으로 계산
+    # 실제 저축 가능 금액은 연봉 상승률에 따라 증가하고, 물가 상승률은 지출 증가에 반영됨
+    # 따라서 월 저축액도 연봉 상승률만큼 증가한다고 가정
+    monthly_contribution_growth_rate = (
+        salary_growth_rate  # 연봉 상승률에 따라 저축액 증가
+    )
 
     monthly_return_rate = annual_return_rate / 100 / 12
     months_to_retirement = years_to_retirement * 12
+    monthly_growth_rate = (
+        monthly_contribution_growth_rate / 100 / 12
+    )  # 월 저축액 증가율
 
     if monthly_return_rate > 0:
-        # 복리 계산
+        # 복리 계산 (월 저축액이 매년 증가하는 경우)
         future_value_from_current = current_assets * (
             (1 + monthly_return_rate) ** months_to_retirement
         )
-        future_value_from_contributions = monthly_contribution * (
-            ((1 + monthly_return_rate) ** months_to_retirement - 1)
-            / monthly_return_rate
-        )
+
+        # 월 저축액이 매년 증가하는 경우의 복리 계산
+        # PMT가 매년 (1+g)씩 증가하는 경우의 공식 사용
+        if abs(monthly_return_rate - monthly_growth_rate) > 0.0001:  # 두 비율이 다를 때
+            # (PMT / (r - g)) * (((1+r)^n - (1+g)^n) / (1+r)^n) 형태
+            future_value_from_contributions = monthly_contribution * (
+                (
+                    (1 + monthly_return_rate) ** months_to_retirement
+                    - (1 + monthly_growth_rate) ** months_to_retirement
+                )
+                / (monthly_return_rate - monthly_growth_rate)
+            )
+        else:
+            # r ≈ g인 경우: PMT * n * (1+r)^(n-1)
+            future_value_from_contributions = (
+                monthly_contribution
+                * months_to_retirement
+                * ((1 + monthly_return_rate) ** (months_to_retirement - 1))
+            )
+
         projected_assets = future_value_from_current + future_value_from_contributions
     else:
-        # 수익률이 0인 경우 단순 계산
-        projected_assets = current_assets + (
-            monthly_contribution * months_to_retirement
-        )
+        # 수익률이 0인 경우, 저축액 증가를 고려한 단순 계산
+        if monthly_growth_rate > 0:
+            # 등비수열 합 공식: PMT * ((1+g)^n - 1) / g
+            projected_assets = current_assets + monthly_contribution * (
+                ((1 + monthly_growth_rate) ** months_to_retirement - 1)
+                / monthly_growth_rate
+            )
+        else:
+            projected_assets = current_assets + (
+                monthly_contribution * months_to_retirement
+            )
 
     # 목표 달성 여부
     is_achievable = projected_assets >= target_assets
@@ -1307,7 +1391,7 @@ def find_optimal_contribution_rate(
         withdrawal_rate: 현금화율 (%) - 기본값 4%
 
     Returns:
-        Tuple[float, Dict[str, Any]]: (최적 매달 저축 금액, 계산 결과)
+        Tuple[float, Dict[str, Any]]: (최적 매달 저축 금액 (원 단위), 계산 결과)
     """
     # 목표 자산 계산
     current_age = inputs.get("current_age", 30)
@@ -1317,9 +1401,15 @@ def find_optimal_contribution_rate(
     if years_to_retirement <= 0:
         return 0, {}
 
-    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)
-    retirement_medical_expense = inputs.get("retirement_medical_expense", 0)
+    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)  # 원 단위
+    retirement_medical_expense = inputs.get("retirement_medical_expense", 0)  # 원 단위
     inflation_rate = inputs.get("inflation_rate", 2.5)
+
+    # 기존 데이터 호환: 만원 단위로 저장된 기존 데이터 변환
+    if retirement_monthly_expense > 0 and retirement_monthly_expense < 1000000:
+        retirement_monthly_expense = retirement_monthly_expense * 10000
+    if retirement_medical_expense > 0 and retirement_medical_expense < 1000000:
+        retirement_medical_expense = retirement_medical_expense * 10000
 
     monthly_expense_at_retirement = apply_inflation(
         retirement_monthly_expense + retirement_medical_expense,
@@ -1372,7 +1462,7 @@ def find_required_return_rate(
 
     Args:
         inputs: 입력 데이터 딕셔너리
-        monthly_contribution: 매달 저축 금액 (만원)
+        monthly_contribution: 매달 저축 금액 (원)
         withdrawal_rate: 현금화율 (%) - 기본값 4%
 
     Returns:
@@ -1386,9 +1476,16 @@ def find_required_return_rate(
     if years_to_retirement <= 0:
         return 0, {}
 
-    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)
-    retirement_medical_expense = inputs.get("retirement_medical_expense", 0)
+    retirement_monthly_expense = inputs.get("retirement_monthly_expense", 0)  # 원 단위
+    retirement_medical_expense = inputs.get("retirement_medical_expense", 0)  # 원 단위
     inflation_rate = inputs.get("inflation_rate", 2.5)
+    salary_growth_rate = inputs.get("salary_growth_rate", 3.0)  # 연봉 상승률
+
+    # 기존 데이터 호환: 만원 단위로 저장된 기존 데이터 변환
+    if retirement_monthly_expense > 0 and retirement_monthly_expense < 1000000:
+        retirement_monthly_expense = retirement_monthly_expense * 10000
+    if retirement_medical_expense > 0 and retirement_medical_expense < 1000000:
+        retirement_medical_expense = retirement_medical_expense * 10000
 
     monthly_expense_at_retirement = apply_inflation(
         retirement_monthly_expense + retirement_medical_expense,
@@ -1399,26 +1496,57 @@ def find_required_return_rate(
     annual_expense_needed = monthly_expense_at_retirement * 12
     target_assets = annual_expense_needed / (withdrawal_rate / 100)
 
-    current_assets = inputs.get("total_assets", 0)
+    current_assets = inputs.get("total_assets", 0)  # 원 단위
     months_to_retirement = years_to_retirement * 12
 
+    # 기존 데이터 호환: monthly_contribution이 만원 단위로 전달되었을 수 있음
+    if monthly_contribution < 1000000:  # 100만원 미만이면 만원 단위로 간주
+        monthly_contribution = monthly_contribution * 10000
+
     # 이분 탐색으로 필요한 수익률 찾기
-    # FV = PV * (1 + r)^n + PMT * (((1 + r)^n - 1) / r)
-    # target_assets = current_assets * (1 + r)^n + monthly_contribution * (((1 + r)^n - 1) / r)
+    # 연봉 상승률에 따라 월 저축액이 매년 증가하는 것을 반영
+    # FV = PV * (1 + r)^n + PMT * (((1 + r)^n - (1+g)^n) / (r-g))
+    # target_assets = current_assets * (1 + r)^n + monthly_contribution * (((1 + r)^n - (1+g)^n) / (r-g))
 
     def calculate_future_value(return_rate: float) -> float:
-        """주어진 수익률로 미래 가치 계산"""
+        """주어진 수익률로 미래 가치 계산 (연봉 상승률 반영)"""
         monthly_rate = return_rate / 100 / 12
+        monthly_contribution_growth_rate = (
+            salary_growth_rate / 100 / 12
+        )  # 월 저축액 증가율
+
         if monthly_rate > 0:
             future_value_from_current = current_assets * (
                 (1 + monthly_rate) ** months_to_retirement
             )
-            future_value_from_contributions = monthly_contribution * (
-                ((1 + monthly_rate) ** months_to_retirement - 1) / monthly_rate
-            )
+
+            # 월 저축액이 매년 증가하는 경우의 복리 계산
+            if abs(monthly_rate - monthly_contribution_growth_rate) > 0.0001:
+                future_value_from_contributions = monthly_contribution * (
+                    (
+                        (1 + monthly_rate) ** months_to_retirement
+                        - (1 + monthly_contribution_growth_rate) ** months_to_retirement
+                    )
+                    / (monthly_rate - monthly_contribution_growth_rate)
+                )
+            else:
+                # r ≈ g인 경우
+                future_value_from_contributions = (
+                    monthly_contribution
+                    * months_to_retirement
+                    * ((1 + monthly_rate) ** (months_to_retirement - 1))
+                )
+
             return future_value_from_current + future_value_from_contributions
         else:
-            return current_assets + (monthly_contribution * months_to_retirement)
+            # 수익률이 0인 경우
+            if monthly_contribution_growth_rate > 0:
+                return current_assets + monthly_contribution * (
+                    ((1 + monthly_contribution_growth_rate) ** months_to_retirement - 1)
+                    / monthly_contribution_growth_rate
+                )
+            else:
+                return current_assets + (monthly_contribution * months_to_retirement)
 
     # 이분 탐색으로 필요한 수익률 찾기
     low_rate = 0.0

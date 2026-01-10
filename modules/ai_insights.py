@@ -47,16 +47,57 @@ def generate_ai_insight(
 
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        # 입력 데이터 요약
-        summary = _create_summary(inputs, calculation_results)
+        # 사용자 입력과 계산 결과를 JSON 형식으로 변환
+        import json
+
+        # JSON으로 직렬화 가능한 형태로 정리
+        user_data = {
+            "inputs": inputs,
+            "calculation_results": calculation_results,
+        }
+
+        # JSON 문자열로 변환 (읽기 쉽게 포맷팅)
+        user_data_json = json.dumps(user_data, ensure_ascii=False, indent=2)
 
         # 프롬프트 구성
         prompt = f"""
-다음은 사용자의 재정 상태 분석 결과입니다.
+다음은 사용자의 재정 상태 입력 데이터와 계산 결과입니다.
 
-{summary}
+```json
+{user_data_json}
+```
 
-위 데이터를 바탕으로 **노후생활(연금) 계획에 중점을 둔** 마크다운 형식으로 다음과 같이 작성해주세요:
+위 JSON 데이터를 분석하여 **노후생활(연금) 계획에 중점을 둔** 마크다운 형식으로 다음과 같이 작성해주세요:
+
+**⚠️ 매우 중요: 금액 단위 규칙 (반드시 확인!)**
+
+**모든 금액은 원 단위로 저장되어 있습니다!**
+
+1. **대출 관련 (debt_items)**:
+   - `principal` (원금): 원 단위로 저장됨
+     - 예시: JSON에서 `"principal": 15000000` → 이것은 **15,000,000원 = 1,500만원**을 의미합니다
+   
+   - `monthly_payment` (월 상환액): 원 단위로 저장됨
+     - 예시: JSON에서 `"monthly_payment": 275000` → 이것은 **275,000원 = 27.5만원**을 의미합니다
+     - 표시 시: "월 27.5만원" 또는 "월 275,000원"으로 표시
+
+2. **자산 관련 (asset_items, inputs)**:
+   - `total_assets`: 원 단위
+   - `total_debt`: 원 단위
+   - `asset_items` 내부의 `amount`, `value`, `principal`: 원 단위
+   
+3. **소득/지출**:
+   - `salary` (연봉): 원 단위
+   - `bonus` (상여금): 원 단위
+   - `monthly_fixed_expense`, `monthly_variable_expense`: 원 단위
+
+**표시 규칙:**
+- 모든 금액을 만원 단위로 변환하여 표시 (원 단위 값 / 10000)
+- 예: 15,000,000원 → "1,500만원", 275,000원 → "27.5만원"
+
+4. **기타**:
+   - 전세자금 대출(is_jeonse: true)은 만기 시 보증금 반환으로 원금이 상환되므로 자산 감소 없이 부채만 감소합니다
+   - 모든 결과는 만원 단위로 표시해주세요 (예: "월 27.5만원", "총 1,500만원")
 
 ## 📊 재정 상태 분석
 
@@ -129,7 +170,7 @@ def generate_ai_insight(
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
-            max_tokens=2500,
+            max_tokens=3000,
         )
 
         insight = response.choices[0].message.content.strip()
@@ -187,10 +228,10 @@ def _create_summary(inputs: Dict[str, Any], calculation_results: Dict[str, Any])
     if asset_items and total_assets > 0:
         summary_lines.append(f"\n=== 현재 보유 자산 배분 ===")
 
-        # 자산 유형별 집계
-        assets_by_type = {}
-        portfolio_weighted_return = 0.0
+        # 자산 유형별 집계 (기타 유형은 실제 유형명 포함)
+        type_returns = {}
         total_weighted_return = 0.0
+        total_weight = 0.0
 
         for item in asset_items:
             asset_type = item.get("type", "기타")
@@ -199,38 +240,65 @@ def _create_summary(inputs: Dict[str, Any], calculation_results: Dict[str, Any])
                 or item.get("principal", 0)
                 or item.get("amount", 0)
             )
-            return_rate = item.get("return_rate", 0.0)
+            return_rate = item.get("return_rate", 0.0) or item.get("rate", 0.0)
 
             # 만원 단위로 변환 (원 단위일 수 있음)
             if value >= 10000:
                 value = value / 10000.0
 
-            if asset_type not in assets_by_type:
-                assets_by_type[asset_type] = {
+            # 기타 유형의 경우 실제 유형명 표시
+            display_type = asset_type
+            if asset_type == "기타":
+                other_type = item.get("other_type", "기타")
+                if other_type and other_type != "기타":
+                    display_type = f"기타 ({other_type})"
+                else:
+                    display_type = "기타"
+
+            if display_type not in type_returns:
+                type_returns[display_type] = {
                     "value": 0,
-                    "return_rate": 0.0,
-                    "count": 0,
+                    "weighted_return": 0.0,
+                    "weight": 0.0,
                 }
 
-            assets_by_type[asset_type]["value"] += value
-            assets_by_type[asset_type]["count"] += 1
-            # 가중 평균 수익률 계산을 위한 준비
-            total_weighted_return += value * return_rate
+            type_returns[display_type]["value"] += value
+
+            # 가중 평균 수익률 계산
+            effective_return = return_rate
+            if asset_type == "부동산" and return_rate == 0:
+                effective_return = 2.5  # 부동산 기본 수익률
+
+            if effective_return > 0 or asset_type == "부동산":
+                type_returns[display_type]["weighted_return"] += (
+                    value * effective_return
+                )
+                type_returns[display_type]["weight"] += value
+                total_weighted_return += value * effective_return
+                total_weight += value
 
         # 자산 유형별 비중 및 수익률
-        for asset_type, data in assets_by_type.items():
+        for display_type, data in type_returns.items():
             value = data["value"]
             percentage = (value / total_assets * 100) if total_assets > 0 else 0
             avg_return = (
-                (total_weighted_return / total_assets) if total_assets > 0 else 0.0
+                (data["weighted_return"] / data["weight"])
+                if data["weight"] > 0
+                else 0.0
             )
-            summary_lines.append(f"{asset_type}: {value:,.0f}만원 ({percentage:.1f}%)")
+            summary_lines.append(
+                f"{display_type}: {value:,.0f}만원 ({percentage:.1f}%)"
+            )
+            if avg_return > 0:
+                summary_lines.append(f"  - 평균 예상 수익률: {avg_return:.2f}%")
+            elif display_type.startswith("기타"):
+                summary_lines.append(f"  - 수익률 미입력")
 
         # 포트폴리오 전체 수익률
-        if total_assets > 0:
-            portfolio_return = total_weighted_return / total_assets
+        if total_assets > 0 and total_weight > 0:
+            portfolio_return = total_weighted_return / total_weight
             summary_lines.append(
-                f"포트폴리오 가중 평균 수익률: {portfolio_return:.2f}%"
+                f"\n포트폴리오 가중 평균 수익률: {portfolio_return:.2f}%"
             )
 
     # 지출 및 저축 (노후 계획의 핵심)
@@ -311,25 +379,33 @@ def _create_summary(inputs: Dict[str, Any], calculation_results: Dict[str, Any])
 
         summary_lines.append(f"월 투자액 합계: {total_monthly_investment:,.0f}만원")
 
-        # 자산 유형별 집계
+        # 자산 유형별 집계 (기타 유형은 실제 유형명 포함)
         investment_by_type = {}
         for item in monthly_investment_items:
             asset_type = item.get("type", "기타")
             amount = item.get("monthly_amount", 0) / 10000.0  # 만원 단위
-            if asset_type not in investment_by_type:
-                investment_by_type[asset_type] = 0
-            investment_by_type[asset_type] += amount
+
+            # 기타 유형의 경우 실제 유형명 표시
+            display_type = asset_type
+            if asset_type == "기타":
+                other_type = item.get("other_type", "기타")
+                if other_type and other_type != "기타":
+                    display_type = f"기타 ({other_type})"
+
+            if display_type not in investment_by_type:
+                investment_by_type[display_type] = 0
+            investment_by_type[display_type] += amount
 
         if investment_by_type:
             summary_lines.append("자산 유형별 투자액:")
-            for asset_type, amount in investment_by_type.items():
+            for display_type, amount in investment_by_type.items():
                 percentage = (
                     (amount / total_monthly_investment * 100)
                     if total_monthly_investment > 0
                     else 0
                 )
                 summary_lines.append(
-                    f"  - {asset_type}: {amount:,.0f}만원 ({percentage:.1f}%)"
+                    f"  - {display_type}: {amount:,.0f}만원 ({percentage:.1f}%)"
                 )
 
     # 계산 결과 (노후 계획에 필요한 핵심 정보만)

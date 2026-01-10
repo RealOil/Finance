@@ -267,19 +267,16 @@ if run_simulation:
             )
             savings_after_debt_paid = monthly_savings + total_monthly_debt_payment
 
-            # 실제 저축/투자 금액
+            # 실제 저축/투자 금액 (원 단위)
             monthly_investment_items = inputs.get("monthly_investment_items", [])
             actual_savings_investment = (
-                (
-                    sum(
-                        item.get("monthly_amount", 0)
-                        for item in monthly_investment_items
-                    )
-                    / 10000.0
+                sum(
+                    item.get("monthly_amount", 0)
+                    for item in monthly_investment_items
                 )
                 if monthly_investment_items
                 else 0.0
-            )  # 만원 단위로 변환
+            )  # 원 단위
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -423,11 +420,12 @@ if run_simulation:
 
     # 의료비 기본값 설정
     if not inputs_for_retirement.get("retirement_medical_expense"):
-        inputs_for_retirement["retirement_medical_expense"] = 45  # 기본값 45만원
+        inputs_for_retirement["retirement_medical_expense"] = 450000  # 원 단위 (기본값 45만원)
 
-    # 은퇴 목표 계산 (기본값으로)
+    # 은퇴 목표 계산 (기본값으로) - 원 단위
+    # 월 저축액을 50만원 단위로 반올림 (원 단위 기준)
     default_monthly_contribution_for_insight = (
-        max(50, int(monthly_savings / 50) * 50) if monthly_savings > 0 else 100
+        max(500000, (monthly_savings // 500000) * 500000) if monthly_savings > 0 else 1000000
     )
 
     # 기본 수익률(5%)로 은퇴 목표 계산
@@ -485,9 +483,10 @@ if run_simulation:
     """
     )
 
-    # 현재 저축 가능 금액 기준으로 필요한 수익률 먼저 계산
+    # 현재 저축 가능 금액 기준으로 필요한 수익률 먼저 계산 - 원 단위
+    # 월 저축액을 50만원 단위로 반올림 (원 단위 기준)
     default_monthly_contribution = (
-        max(50, int(monthly_savings / 50) * 50) if monthly_savings > 0 else 100
+        max(500000, (monthly_savings // 500000) * 500000) if monthly_savings > 0 else 1000000
     )
 
     # 초기 필요한 수익률 계산
@@ -508,13 +507,14 @@ if run_simulation:
     col_slider1, col_slider2 = st.columns(2)
 
     with col_slider1:
-        monthly_contribution = st.slider(
-            "매달 저축 금액 (만원)",
-            min_value=50,
-            max_value=500,
-            value=default_monthly_contribution,
-            step=50,
-            help="저축 금액에 따른 필요한 수익률 추이를 확인하세요",
+        monthly_contribution = st.number_input(
+            "매달 저축 금액 (원)",
+            min_value=0,
+            max_value=10000000,  # 최대 1천만원
+            value=int(default_monthly_contribution),
+            step=500000,  # 50만원 단위
+            format="%d",
+            help="저축 금액에 따른 필요한 수익률 추이를 확인하세요 (1원 단위 입력)",
         )
 
     with col_slider2:

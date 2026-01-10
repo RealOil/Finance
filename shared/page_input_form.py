@@ -39,7 +39,7 @@ VARIABLE_EXPENSE_CATEGORIES = [
 ]
 
 # 자산 타입 정의
-ASSET_TYPES = ["예금", "적금", "부동산", "주식"]
+ASSET_TYPES = ["예금", "적금", "주식", "부동산", "기타"]
 
 # 대출 상환 방식 정의
 DEBT_REPAYMENT_TYPES = [
@@ -277,13 +277,15 @@ def render_page_input_form(
     with col2:
         st.subheader("소득 정보")
         salary = st.number_input(
-            "연봉 (만원)",
+            "연봉 (원)",
             min_value=0,
             value=st.session_state.get(f"{page_type}_salary", None),
-            step=100,
+            step=10000,
+            format="%d",
             key=f"{page_type}_salary",
-            help="세전 연봉을 입력하세요",
+            help="세전 연봉을 1원 단위로 입력하세요",
         )
+        # 원 단위로 저장
         inputs["salary"] = salary if salary is not None else 0
 
         salary_growth_rate = st.slider(
@@ -298,13 +300,15 @@ def render_page_input_form(
         inputs["salary_growth_rate"] = salary_growth_rate
 
         bonus = st.number_input(
-            "보너스 (만원)",
+            "보너스 (원)",
             min_value=0,
             value=st.session_state.get(f"{page_type}_bonus", 0),
-            step=100,
+            step=10000,
+            format="%d",
             key=f"{page_type}_bonus",
-            help="연간 보너스 금액 (선택)",
+            help="연간 보너스 금액을 1원 단위로 입력하세요 (선택)",
         )
+        # 원 단위로 저장
         inputs["bonus"] = bonus
 
     with col3:
@@ -471,16 +475,16 @@ def render_page_input_form(
                         st.session_state[f"{page_type}_adding_variable"] = False
                         st.rerun()
 
-        # 총 월 지출 (만원 단위로 변환하여 저장)
+        # 총 월 지출 (원 단위로 저장)
         monthly_total_expense_won = fixed_total + variable_total
-        monthly_fixed_expense_value = fixed_total / 10000  # 만원 단위로 변환
-        monthly_variable_expense_value = variable_total / 10000  # 만원 단위로 변환
+        monthly_fixed_expense_value = fixed_total  # 원 단위로 저장
+        monthly_variable_expense_value = variable_total  # 원 단위로 저장
         st.divider()
         st.markdown(
-            f"**총 월 지출: {monthly_total_expense_won:,}원** ({monthly_fixed_expense_value + monthly_variable_expense_value:.1f}만원)"
+            f"**총 월 지출: {monthly_total_expense_won:,}원** ({monthly_total_expense_won / 10000:.1f}만원)"
         )
 
-        # inputs에 저장 (만원 단위)
+        # inputs에 저장 (원 단위)
         inputs["monthly_fixed_expense"] = monthly_fixed_expense_value
         inputs["monthly_variable_expense"] = monthly_variable_expense_value
         inputs["fixed_expense_items"] = fixed_items
@@ -521,6 +525,8 @@ def render_page_input_form(
                 assets_total += item.get("value", 0)
             elif asset_type == "주식":
                 assets_total += item.get("amount", 0)
+            elif asset_type == "기타":
+                assets_total += item.get("amount", 0)
 
         st.markdown(
             f"**합계: {assets_total:,}원** (만원: {assets_total / 10000:.1f}만원)"
@@ -560,9 +566,20 @@ def render_page_input_form(
                 elif asset_type == "부동산":
                     st.text(f"{item.get('value', 0):,}원")
                 elif asset_type == "주식":
-                    st.text(
-                        f"{item.get('amount', 0):,}원, {item.get('return_rate', 0):.2f}%"
-                    )
+                    amount = item.get("amount", 0)
+                    return_rate = item.get("return_rate", 0.0)
+                    st.text(f"{amount:,}원, 예상 수익률 {return_rate:.2f}%")
+                    st.caption("💡 주식, ETF, 연금/퇴직연금 계좌의 주식/ETF 포함")
+                elif asset_type == "기타":
+                    other_type = item.get("other_type", "기타")
+                    amount = item.get("amount", 0)
+                    return_rate = item.get("return_rate", 0.0)
+                    if return_rate > 0:
+                        st.text(
+                            f"{other_type}: {amount:,}원, 예상 수익률 {return_rate:.2f}%"
+                        )
+                    else:
+                        st.text(f"{other_type}: {amount:,}원")
             with col_del:
                 if st.button(
                     "삭제",
@@ -712,6 +729,50 @@ def render_page_input_form(
                             key=f"{page_type}_new_stock_return",
                         )
                     new_item.update({"amount": amount, "return_rate": return_rate})
+                    st.info(
+                        "💡 주식에는 개별 주식, ETF, 연금/퇴직연금 계좌의 주식/ETF 등이 모두 포함됩니다."
+                    )
+
+                elif asset_type == "기타":
+                    other_type = st.text_input(
+                        "자산 유형 (예: 채권, 금, 암호화폐 등)",
+                        key=f"{page_type}_new_other_type",
+                        placeholder="예: 채권",
+                    )
+                    col_amt, col_return = st.columns(2)
+                    with col_amt:
+                        amount = st.number_input(
+                            "금액 (원)",
+                            min_value=0,
+                            value=0,
+                            step=1,
+                            format="%d",
+                            key=f"{page_type}_new_other_amount",
+                            help="1원 단위로 입력",
+                        )
+                    with col_return:
+                        return_rate = st.number_input(
+                            "예상 수익률 (%)",
+                            min_value=-100.0,
+                            max_value=100.0,
+                            value=0.0,
+                            step=0.5,
+                            format="%.2f",
+                            key=f"{page_type}_new_other_return",
+                        )
+                    if not other_type or not other_type.strip():
+                        st.warning("⚠️ 자산 유형을 입력해주세요.")
+                    new_item.update(
+                        {
+                            "amount": amount,
+                            "return_rate": return_rate,
+                            "other_type": (
+                                other_type.strip()
+                                if other_type and other_type.strip()
+                                else "기타"
+                            ),
+                        }
+                    )
 
                 col_save, col_cancel = st.columns(2)
                 with col_save:
@@ -730,8 +791,8 @@ def render_page_input_form(
                         st.session_state[f"{page_type}_adding_asset"] = False
                         st.rerun()
 
-        # 총 자산 (만원 단위로 변환하여 저장)
-        total_assets_value = assets_total / 10000  # 만원 단위로 변환
+        # 총 자산 (원 단위로 저장)
+        total_assets_value = assets_total  # 원 단위로 저장
         inputs["total_assets"] = total_assets_value
         inputs["asset_items"] = asset_items
 
@@ -775,6 +836,15 @@ def render_page_input_form(
                 elif asset_type == "주식":
                     return_rate = item.get("return_rate", 0.0)
                     st.text(f"월 {monthly_amount:,}원, 예상 수익률 {return_rate:.2f}%")
+                elif asset_type == "기타":
+                    other_type = item.get("other_type", "기타")
+                    return_rate = item.get("return_rate", 0.0)
+                    if return_rate > 0:
+                        st.text(
+                            f"{other_type}: 월 {monthly_amount:,}원, 예상 수익률 {return_rate:.2f}%"
+                        )
+                    else:
+                        st.text(f"{other_type}: 월 {monthly_amount:,}원")
             with col_del:
                 if st.button(
                     "삭제",
@@ -838,6 +908,34 @@ def render_page_input_form(
                             key=f"{page_type}_new_monthly_investment_return_rate",
                         )
                         new_item["return_rate"] = return_rate
+                        st.info(
+                            "💡 주식에는 개별 주식, ETF, 연금/퇴직연금 계좌의 주식/ETF 등이 모두 포함됩니다."
+                        )
+                    elif investment_type == "부동산":
+                        pass  # 부동산은 월 투자 금액만 필요
+                    elif investment_type == "기타":
+                        other_type = st.text_input(
+                            "자산 유형 (예: 채권, 금 등)",
+                            key=f"{page_type}_new_monthly_investment_other_type",
+                            placeholder="예: 채권",
+                        )
+                        return_rate = st.number_input(
+                            "예상 수익률 (%)",
+                            min_value=-100.0,
+                            max_value=100.0,
+                            value=0.0,
+                            step=0.5,
+                            format="%.2f",
+                            key=f"{page_type}_new_monthly_investment_other_return_rate",
+                        )
+                        new_item["return_rate"] = return_rate
+                        new_item["other_type"] = (
+                            other_type.strip()
+                            if other_type and other_type.strip()
+                            else "기타"
+                        )
+                        if not other_type or not other_type.strip():
+                            st.warning("⚠️ 자산 유형을 입력해주세요.")
 
                 col_save, col_cancel = st.columns(2)
                 with col_save:
@@ -862,10 +960,8 @@ def render_page_input_form(
                         )
                         st.rerun()
 
-        # 월 저축/투자 계획 정보를 inputs에 저장 (만원 단위)
-        monthly_investment_total_won = (
-            monthly_investment_total / 10000
-        )  # 만원 단위로 변환
+        # 월 저축/투자 계획 정보를 inputs에 저장 (원 단위)
+        monthly_investment_total_won = monthly_investment_total  # 원 단위로 저장
         inputs["monthly_investment_items"] = monthly_investment_items
         inputs["monthly_investment_total"] = monthly_investment_total_won
 
@@ -901,19 +997,24 @@ def render_page_input_form(
 
             # 원금 값이 비정상적으로 큰 경우 (예: 원 단위로 입력된 기존 데이터)
             # 일반적인 대출 원금 범위: 1만원 ~ 10억만원 (만원 단위 기준)
+            # principal은 이미 원 단위로 저장되어야 함 (만원 단위로 저장된 기존 데이터 호환)
             # 값이 100,000만원(100억원) 이상이면 원 단위로 입력된 것으로 간주
             if (
                 not is_normalized and principal >= 100000
-            ):  # 10억원 이상 (100,000만원 이상)
-                # 원 단위를 만원 단위로 변환 (예: 150000000원 -> 15000만원)
-                principal = principal / 10000
+            ):  # 100,000만원 이상이면 이미 원 단위
+                # 이미 원 단위이므로 그대로 사용
+                item["_normalized"] = True
+                needs_update = True
+            elif not is_normalized and principal < 100000:
+                # 만원 단위로 저장된 기존 데이터를 원 단위로 변환
+                principal = principal * 10000
                 item["principal"] = principal
                 item["_normalized"] = True
                 needs_update = True
 
-            total_debt_from_items += principal
+            total_debt_from_items += principal  # 원 단위로 합산
 
-        # 월 상환액 합계 계산 (만원 단위)
+        # 월 상환액 합계 계산 (원 단위)
         # 기간이 지난 대출은 계산에서 제외
         total_monthly_debt_payment = 0
         for item in debt_items:
@@ -926,27 +1027,21 @@ def render_page_input_form(
             principal = item.get("principal", 0)
             is_normalized = item.get("_normalized", False)
 
-            # 월 상환액이 비정상적으로 큰 경우 검증 (기존 데이터 호환성)
-            # 일반적인 월 상환액 범위: 1만원 ~ 500만원 (만원 단위 기준)
-            if not is_normalized and monthly_payment >= 500:  # 500만원 이상
-                # 원 단위를 만원 단위로 변환 (예: 275000원 -> 27.5만원)
-                monthly_payment = monthly_payment / 10000
-                item["monthly_payment"] = monthly_payment
-                item["_normalized"] = True
-                needs_update = True
-            elif (
-                not is_normalized
-                and item.get("repayment_type") == "만기 원금 상환"
-                and monthly_payment > principal * 0.1
-                and principal > 0
-            ):
-                # 만기 원금 상환인데 월 상환액이 원금의 10% 이상이면 원 단위로 간주
-                monthly_payment = monthly_payment / 10000
-                item["monthly_payment"] = monthly_payment
-                item["_normalized"] = True
-                needs_update = True
+            # 월 상환액 단위 변환 (기존 데이터 호환성)
+            # 만원 단위로 저장된 기존 데이터를 원 단위로 변환
+            if not is_normalized:
+                if monthly_payment >= 500:  # 500만원 이상이면 이미 원 단위
+                    # 이미 원 단위이므로 그대로 사용
+                    item["_normalized"] = True
+                    needs_update = True
+                elif monthly_payment < 500:
+                    # 만원 단위로 저장된 기존 데이터를 원 단위로 변환
+                    monthly_payment = monthly_payment * 10000
+                    item["monthly_payment"] = monthly_payment
+                    item["_normalized"] = True
+                    needs_update = True
 
-            total_monthly_debt_payment += monthly_payment
+            total_monthly_debt_payment += monthly_payment  # 원 단위로 합산
 
         # session state 업데이트 (변환이 실제로 일어난 경우에만, 한 번만)
         if needs_update:
@@ -976,7 +1071,8 @@ def render_page_input_form(
                     col_del,
                 ) = st.columns([1.8, 1, 1.5, 1, 1.2, 1, 0.8])
                 with col_principal:
-                    st.text(f"{item.get('principal', 0):,.0f}만원")
+                    principal_won = item.get('principal', 0)  # 원 단위
+                    st.text(f"{principal_won / 10000:,.0f}만원 ({principal_won:,}원)")
                 with col_rate:
                     st.text(f"{item.get('interest_rate', 0):.2f}%")
                 with col_type:
@@ -986,7 +1082,8 @@ def render_page_input_form(
                     is_jeonse = item.get("is_jeonse", False)
                     st.text("전세" if is_jeonse else "-")
                 with col_payment:
-                    st.text(f"월 {item.get('monthly_payment', 0):,.0f}만원")
+                    monthly_payment_won = item.get('monthly_payment', 0)  # 원 단위
+                    st.text(f"월 {monthly_payment_won / 10000:,.0f}만원 ({monthly_payment_won:,}원)")
                 with col_months:
                     remaining_months = item.get("remaining_months", 0)
                     total_months = item.get("total_months", remaining_months)
@@ -1014,7 +1111,7 @@ def render_page_input_form(
         # 활성 대출이 있는 경우 요약 정보 표시
         if active_debt_items:
             st.info(
-                f"**대출 원금 합계: {total_debt_from_items:,.0f}만원** | **월 대출 상환액 합계: {total_monthly_debt_payment:,.0f}만원**"
+                f"**대출 원금 합계: {total_debt_from_items / 10000:,.0f}만원 ({total_debt_from_items:,}원)** | **월 대출 상환액 합계: {total_monthly_debt_payment / 10000:,.0f}만원 ({total_monthly_debt_payment:,}원)**"
             )
             if len(debt_items) > len(active_debt_items):
                 st.caption(
@@ -1105,11 +1202,9 @@ def render_page_input_form(
                         monthly_payment_won = (
                             principal_in_won * debt_interest_rate / 100
                         ) / 12
-                        monthly_payment = (
-                            monthly_payment_won / 10000
-                        )  # 만원 단위로 변환 (저장용)
+                        monthly_payment = monthly_payment_won  # 원 단위로 저장
                         st.info(
-                            f"💡 월 상환액 (이자): 약 {monthly_payment:.0f}만원 ({monthly_payment_won:,.0f}원) | "
+                            f"💡 월 상환액 (이자): 약 {monthly_payment / 10000:.0f}만원 ({monthly_payment:,.0f}원) | "
                             f"만기 시 원금 {principal_in_won:,.0f}원 ({principal_in_won/10000:.0f}만원) 일시 상환"
                         )
                     elif debt_repayment_type == "균등 상환":
@@ -1128,11 +1223,9 @@ def render_page_input_form(
                                     if annuity_factor > 0
                                     else 0
                                 )
-                                monthly_payment = (
-                                    monthly_payment_won / 10000
-                                )  # 만원 단위로 변환 (저장용)
+                                monthly_payment = monthly_payment_won  # 원 단위로 저장
                                 st.info(
-                                    f"💡 월 상환액: 약 {monthly_payment:.0f}만원 ({monthly_payment_won:,.0f}원) "
+                                    f"💡 월 상환액: 약 {monthly_payment / 10000:.0f}만원 ({monthly_payment:,.0f}원) "
                                     f"(원금+이자 균등 상환, {debt_total_months}개월)"
                                 )
                     elif debt_repayment_type == "분할 상환":
@@ -1148,11 +1241,9 @@ def render_page_input_form(
                         monthly_payment_won = (
                             principal_per_month_won + interest_first_month_won
                         )
-                        monthly_payment = (
-                            monthly_payment_won / 10000
-                        )  # 만원 단위로 변환 (저장용)
+                        monthly_payment = monthly_payment_won  # 원 단위로 저장
                         st.info(
-                            f"💡 초기 월 상환액: 약 {monthly_payment:.0f}만원 ({monthly_payment_won:,.0f}원) "
+                            f"💡 초기 월 상환액: 약 {monthly_payment / 10000:.0f}만원 ({monthly_payment:,.0f}원) "
                             f"(원금 {principal_per_month_won/10000:.0f}만원 + 이자 {interest_first_month_won/10000:.0f}만원, 점차 감소)"
                         )
 
@@ -1166,10 +1257,8 @@ def render_page_input_form(
                         elif debt_total_months <= 0:
                             st.error("총 개월을 입력해주세요.")
                         else:
-                            # 원 단위 입력값을 만원 단위로 변환하여 저장 (내부 계산은 만원 단위로 통일)
-                            principal_in_manwon = (
-                                debt_principal / 10000
-                            )  # 원 → 만원 변환
+                            # 원 단위로 저장 (입력값이 이미 원 단위)
+                            principal_in_won = debt_principal  # 원 단위로 저장
 
                             # 대출 이름 생성 (전세자금 대출 여부에 따라)
                             if is_jeonse:
@@ -1180,10 +1269,10 @@ def render_page_input_form(
                             new_debt_item = {
                                 "id": str(uuid.uuid4()),
                                 "name": debt_name,
-                                "principal": principal_in_manwon,  # 만원 단위로 저장 (원 단위 입력값 변환)
+                                "principal": principal_in_won,  # 원 단위로 저장
                                 "interest_rate": debt_interest_rate,
                                 "repayment_type": debt_repayment_type,
-                                "monthly_payment": monthly_payment,  # 계산된 월 상환액 (만원 단위)
+                                "monthly_payment": monthly_payment,  # 계산된 월 상환액 (원 단위)
                                 "remaining_months": debt_total_months,  # 총 개월
                                 "total_months": debt_total_months,  # 총 개월 저장 (참조용)
                                 "is_jeonse": is_jeonse,  # 전세자금 대출 여부
@@ -1205,21 +1294,23 @@ def render_page_input_form(
 
         # 총 부채 입력 (대출 항목 외 다른 부채 포함)
         other_debt = st.number_input(
-            "기타 부채 (만원)",
+            "기타 부채 (원)",
             min_value=0,
             value=st.session_state.get(f"{page_type}_other_debt", 0),
-            step=100,
+            step=10000,
+            format="%d",
             key=f"{page_type}_other_debt",
-            help="대출 항목 외 카드 빚, 기타 부채 등",
+            help="대출 항목 외 카드 빚, 기타 부채 등을 1원 단위로 입력하세요",
         )
+        # 원 단위로 저장
 
-        # 총 부채 = 대출 원금 합계 + 기타 부채
+        # 총 부채 = 대출 원금 합계 + 기타 부채 (원 단위)
         total_debt = total_debt_from_items + other_debt
 
         # 총 부채 표시
         if total_debt > 0:
             st.markdown(
-                f"**💰 총 부채: {total_debt:,.0f}만원** (대출 원금: {total_debt_from_items:,.0f}만원 + 기타 부채: {other_debt:,.0f}만원)"
+                f"**💰 총 부채: {total_debt / 10000:,.0f}만원 ({total_debt:,}원)** (대출 원금: {total_debt_from_items / 10000:,.0f}만원 + 기타 부채: {other_debt / 10000:,.0f}만원)"
             )
 
         inputs["total_debt"] = total_debt
@@ -1255,20 +1346,20 @@ def render_page_input_form(
             inputs.get("marital_status", "부부(2인 가구)"),
         )
 
-        # 가구 형태에 따른 평균값 설정
+        # 가구 형태에 따른 평균값 설정 (원 단위)
         if marital_status == "부부(2인 가구)":
-            avg_retirement_expense = 318  # 만원 단위 (부부 기준 평균)
-            min_expense = 200  # 최소값
-            max_expense = 500  # 최대값
+            avg_retirement_expense = 3180000  # 원 단위 (부부 기준 평균 318만원)
+            min_expense = 2000000  # 최소값 200만원
+            max_expense = 5000000  # 최대값 500만원
             help_text = (
-                "은퇴 후 예상 월 생활비입니다. 평균값: 부부 기준 월 318만원 (평균)"
+                "은퇴 후 예상 월 생활비를 1원 단위로 입력하세요. 평균값: 부부 기준 월 318만원 (평균)"
             )
         else:  # 1인 가구
-            avg_retirement_expense = 170  # 만원 단위 (1인 가구 평균)
-            min_expense = 100  # 최소값
-            max_expense = 300  # 최대값
+            avg_retirement_expense = 1700000  # 원 단위 (1인 가구 평균 170만원)
+            min_expense = 1000000  # 최소값 100만원
+            max_expense = 3000000  # 최대값 300만원
             help_text = (
-                "은퇴 후 예상 월 생활비입니다. 평균값: 1인 가구 월 170만원 (평균)"
+                "은퇴 후 예상 월 생활비를 1원 단위로 입력하세요. 평균값: 1인 가구 월 170만원 (평균)"
             )
 
         # 현재 생활비와 평균값 중 더 적절한 값을 기본값으로 사용
@@ -1298,44 +1389,65 @@ def render_page_input_form(
             existing_value = st.session_state.get(
                 session_key, default_retirement_expense
             )
+            # 기존 값이 만원 단위로 저장되어 있을 수 있으므로 변환
+            # 1000 미만이면 만원 단위로 간주 (예: 318은 318만원 = 3180000원)
+            # 1000000 이상이면 이미 원 단위로 간주 (예: 3180000원은 그대로)
+            # 1000 이상 1000000 미만인 경우는 이미 원 단위일 가능성이 높으므로 그대로 사용
+            if existing_value < 1000:
+                existing_value = existing_value * 10000
+            
+            # 변환 후 범위 내로 조정 (변환된 값이 범위를 벗어나면 기본값 사용)
+            if existing_value < min_expense or existing_value > max_expense:
+                existing_value = default_retirement_expense
+            
             # 범위가 변경되었을 수 있으므로 범위 내로 조정
             current_value = max(min_expense, min(max_expense, existing_value))
-            # 범위 밖이면 기본값 사용
-            if existing_value < min_expense or existing_value > max_expense:
-                current_value = default_retirement_expense
 
-        retirement_monthly_expense = st.slider(
-            "은퇴 후 월 생활비 (만원)",
+        retirement_monthly_expense = st.number_input(
+            "은퇴 후 월 생활비 (원)",
             min_value=min_expense,
             max_value=max_expense,
             value=int(current_value),
-            step=10,
+            step=100000,  # 10만원 단위
+            format="%d",
             key=session_key,
             help=help_text,
         )
-        inputs["retirement_monthly_expense"] = retirement_monthly_expense
+        inputs["retirement_monthly_expense"] = retirement_monthly_expense  # 원 단위로 저장
 
         if current_monthly_total > 0:
             ratio = (retirement_monthly_expense / current_monthly_total) * 100
-            st.caption(f"현재 생활비 대비 {ratio:.1f}%")
+            st.caption(f"현재 생활비 대비 {ratio:.1f}% ({retirement_monthly_expense / 10000:.0f}만원)")
 
     with col_setting3:
-        avg_medical_expense = 45  # Average for 65+ (monthly)
-        retirement_medical_expense = st.slider(
-            "은퇴 후 월 의료비 (만원)",
-            min_value=0,
-            max_value=100,
-            value=int(
-                st.session_state.get(
-                    f"{page_type}_retirement_medical_expense", avg_medical_expense
-                )
-            ),
-            step=5,
-            key=f"{page_type}_retirement_medical_expense",
-            help=f"은퇴 후 예상되는 추가 의료비입니다. 65세 이상 평균 월 45만원 (통계 기반)",
+        avg_medical_expense = 450000  # 원 단위 (65세 이상 평균 월 45만원)
+        existing_medical = st.session_state.get(
+            f"{page_type}_retirement_medical_expense", avg_medical_expense
         )
-        inputs["retirement_medical_expense"] = retirement_medical_expense
-        st.caption(f"📊 평균값: {avg_medical_expense}만원")
+        # 기존 값이 만원 단위로 저장되어 있을 수 있으므로 변환
+        # 1000 미만이면 만원 단위로 간주 (예: 45는 45만원 = 450000원)
+        # 1000000 이상이면 이미 원 단위로 간주 (예: 450000원은 그대로)
+        # 1000 이상 1000000 미만인 경우는 이미 원 단위일 가능성이 높으므로 그대로 사용
+        if existing_medical < 1000:
+            existing_medical = existing_medical * 10000
+        # 변환 후에도 최대값을 초과하지 않도록 제한 (변환된 값이 너무 크면 기본값 사용)
+        if existing_medical > 10000000:
+            existing_medical = avg_medical_expense
+        else:
+            existing_medical = min(existing_medical, 10000000)
+        
+        retirement_medical_expense = st.number_input(
+            "은퇴 후 월 의료비 (원)",
+            min_value=0,
+            max_value=10000000,  # 최대 1천만원
+            value=int(existing_medical),
+            step=50000,  # 5만원 단위
+            format="%d",
+            key=f"{page_type}_retirement_medical_expense",
+            help=f"은퇴 후 예상되는 추가 의료비를 1원 단위로 입력하세요. 65세 이상 평균 월 45만원 (통계 기반)",
+        )
+        inputs["retirement_medical_expense"] = retirement_medical_expense  # 원 단위로 저장
+        st.caption(f"📊 평균값: {avg_medical_expense / 10000:.0f}만원 ({avg_medical_expense:,}원)")
 
     return inputs
 
