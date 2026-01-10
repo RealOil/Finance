@@ -4,6 +4,17 @@
 소득 중단, 경제 위기, 은퇴 등 다양한 리스크 상황에서의 생존력을 분석합니다.
 """
 
+import sys
+import os
+from pathlib import Path
+
+# 프로젝트 루트를 Python 경로에 추가
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent
+project_root_str = str(project_root)
+if project_root_str not in sys.path:
+    sys.path.insert(0, project_root_str)
+
 import streamlit as st
 from shared.session_manager import init_session_state
 from shared.page_input_form import render_page_input_form, check_inputs_complete

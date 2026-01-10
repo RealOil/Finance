@@ -7,6 +7,126 @@
 import streamlit as st
 from typing import Dict, Any, List, Optional
 from modules.formatters import format_currency
+import uuid
+
+# 지출 카테고리 정의 (가계부 앱 기준)
+# 고정비 카테고리 (일반적으로 매월 고정적으로 발생하는 지출)
+FIXED_EXPENSE_CATEGORIES = [
+    "주거/통신",  # 월세, 관리비, 통신비 등
+    "금융",  # 금융 수수료 등
+    "대출이자",  # 주택담보대출, 전세자금대출 등 대출 이자
+    "자동차",  # 자동차 대출이자, 보험료 등
+    "의료/건강",  # 건강보험료, 생명보험료 등
+    "구독서비스",  # 넷플릭스, 유튜브 프리미엄, 스포티파이 등
+]
+
+# 변동비 카테고리 (매월 변동하는 지출)
+VARIABLE_EXPENSE_CATEGORIES = [
+    "식비",
+    "카페/간식",
+    "술/유흥",
+    "생활",
+    "온라인쇼핑",
+    "패션/쇼핑",
+    "뷰티/미용",
+    "교통",
+    "문화/여가",
+    "여행/숙박",
+    "교육/학습",
+    "자녀/육아",
+    "반려동물",
+    "경조/선물",
+]
+
+# 자산 타입 정의
+ASSET_TYPES = ["예금", "적금", "부동산", "주식"]
+
+# 대출 상환 방식 정의
+DEBT_REPAYMENT_TYPES = [
+    "만기 원금 상환",  # 전세 대출 등 (원금은 만기 일시 상환, 매월 이자만 납입)
+    "균등 상환",  # 매월 원금+이자 동일하게 상환
+    "분할 상환",  # 원금 균등 + 이자
+]
+
+
+def calculate_deposit_interest(
+    principal: float, months: int, annual_rate: float, is_compound: bool = False
+) -> float:
+    """
+    예금 이자 계산
+
+    Args:
+        principal: 원금 (원)
+        months: 개월 수
+        annual_rate: 연이율 (%)
+        is_compound: True면 복리, False면 단리 (기본값: False)
+
+    Returns:
+        float: 원금 + 이자 (원)
+    """
+    if principal <= 0 or months <= 0 or annual_rate <= 0:
+        return principal
+
+    annual_rate_decimal = annual_rate / 100.0
+
+    if is_compound:
+        # 복리: 원금 × (1 + 연이율)^(개월수/12)
+        total = principal * ((1 + annual_rate_decimal) ** (months / 12.0))
+    else:
+        # 단리: 원금 + (원금 × 연이율 × 개월수 / 12)
+        interest = principal * annual_rate_decimal * (months / 12.0)
+        total = principal + interest
+
+    return total
+
+
+def calculate_savings_interest(
+    monthly_amount: float, months: int, annual_rate: float, is_compound: bool = False
+) -> float:
+    """
+    적금 이자 계산
+
+    Args:
+        monthly_amount: 월 납입액 (원)
+        months: 개월 수
+        annual_rate: 연이율 (%)
+        is_compound: True면 복리, False면 단리 (기본값: False)
+
+    Returns:
+        float: 원금합계 + 이자 (원)
+    """
+    if monthly_amount <= 0 or months <= 0 or annual_rate <= 0:
+        return monthly_amount * months
+
+    annual_rate_decimal = annual_rate / 100.0
+    principal_total = monthly_amount * months
+
+    if is_compound:
+        # 복리: 매달 납입액이 복리로 계산
+        monthly_rate = annual_rate_decimal / 12.0
+        # 등비수열의 합: a × (r^(n+1) - r) / (r - 1)
+        # 여기서 a = monthly_amount, r = (1 + monthly_rate), n = months
+        if monthly_rate > 0:
+            total = (
+                monthly_amount
+                * ((1 + monthly_rate) ** (months + 1) - (1 + monthly_rate))
+                / monthly_rate
+            )
+        else:
+            total = principal_total
+    else:
+        # 단리: 매달 납입액에 대해 개월수만큼 이자 계산
+        # 첫 달: monthly_amount × annual_rate × months / 12
+        # 둘째 달: monthly_amount × annual_rate × (months-1) / 12
+        # ...
+        # 합계: monthly_amount × annual_rate / 12 × (1 + 2 + ... + months)
+        # = monthly_amount × annual_rate / 12 × months × (months + 1) / 2
+        interest = (
+            monthly_amount * annual_rate_decimal / 12.0 * months * (months + 1) / 2.0
+        )
+        total = principal_total + interest
+
+    return total
 
 
 def clear_page_inputs(page_type: str):
@@ -31,6 +151,17 @@ def clear_page_inputs(page_type: str):
         f"{page_type}_marital_status",
         f"{page_type}_retirement_monthly_expense",
         f"{page_type}_retirement_medical_expense",
+        f"{page_type}_fixed_expense_items",
+        f"{page_type}_variable_expense_items",
+        f"{page_type}_asset_items",
+        f"{page_type}_monthly_investment_items",
+        f"{page_type}_debt_items",
+        f"{page_type}_other_debt",
+        f"{page_type}_adding_fixed",
+        f"{page_type}_adding_variable",
+        f"{page_type}_adding_asset",
+        f"{page_type}_adding_monthly_investment",
+        f"{page_type}_adding_debt",
     ]
 
     # 해당 페이지의 입력 필드만 초기화
@@ -179,406 +310,921 @@ def render_page_input_form(
     with col3:
         st.subheader("소비 정보")
 
-        # 세부 카테고리 입력값을 먼저 읽기 (expander 밖에서도 접근 가능하도록)
-        fixed_housing = st.session_state.get(f"{page_type}_fixed_housing", 0)
-        fixed_insurance = st.session_state.get(f"{page_type}_fixed_insurance", 0)
-        fixed_communication = st.session_state.get(
-            f"{page_type}_fixed_communication", 0
-        )
-        fixed_loan_interest = st.session_state.get(
-            f"{page_type}_fixed_loan_interest", 0
-        )
-        fixed_other = st.session_state.get(f"{page_type}_fixed_other", 0)
-        variable_food = st.session_state.get(f"{page_type}_variable_food", 0)
-        variable_transport = st.session_state.get(f"{page_type}_variable_transport", 0)
-        variable_leisure = st.session_state.get(f"{page_type}_variable_leisure", 0)
-        variable_shopping = st.session_state.get(f"{page_type}_variable_shopping", 0)
-        variable_other = st.session_state.get(f"{page_type}_variable_other", 0)
+        # 고정비 항목 리스트 초기화
+        fixed_expense_key = f"{page_type}_fixed_expense_items"
+        if fixed_expense_key not in st.session_state:
+            st.session_state[fixed_expense_key] = []
 
-        # 세부 카테고리 입력 expander
-        with st.expander("📝 세부 카테고리별 입력", expanded=False):
-            st.markdown("**고정비 세부 카테고리**")
-            fixed_housing = st.number_input(
-                "주거비 (월세/관리비) (만원)",
-                min_value=0,
-                value=fixed_housing,
-                step=10,
-                key=f"{page_type}_fixed_housing",
-            )
-            fixed_insurance = st.number_input(
-                "보험료 (만원)",
-                min_value=0,
-                value=fixed_insurance,
-                step=10,
-                key=f"{page_type}_fixed_insurance",
-            )
-            fixed_communication = st.number_input(
-                "통신비 (만원)",
-                min_value=0,
-                value=fixed_communication,
-                step=10,
-                key=f"{page_type}_fixed_communication",
-            )
-            fixed_loan_interest = st.number_input(
-                "대출이자 (만원)",
-                min_value=0,
-                value=fixed_loan_interest,
-                step=10,
-                key=f"{page_type}_fixed_loan_interest",
-            )
-            fixed_other = st.number_input(
-                "기타 고정비 (만원)",
-                min_value=0,
-                value=fixed_other,
-                step=10,
-                key=f"{page_type}_fixed_other",
-            )
+        # 변동비 항목 리스트 초기화
+        variable_expense_key = f"{page_type}_variable_expense_items"
+        if variable_expense_key not in st.session_state:
+            st.session_state[variable_expense_key] = []
 
-            st.divider()
-            st.markdown("**변동비 세부 카테고리**")
-            variable_food = st.number_input(
-                "식비 (만원)",
-                min_value=0,
-                value=variable_food,
-                step=10,
-                key=f"{page_type}_variable_food",
-            )
-            variable_transport = st.number_input(
-                "교통비 (만원)",
-                min_value=0,
-                value=variable_transport,
-                step=10,
-                key=f"{page_type}_variable_transport",
-            )
-            variable_leisure = st.number_input(
-                "여가비 (만원)",
-                min_value=0,
-                value=variable_leisure,
-                step=10,
-                key=f"{page_type}_variable_leisure",
-            )
-            variable_shopping = st.number_input(
-                "쇼핑 (만원)",
-                min_value=0,
-                value=variable_shopping,
-                step=10,
-                key=f"{page_type}_variable_shopping",
-            )
-            variable_other = st.number_input(
-                "기타 변동비 (만원)",
-                min_value=0,
-                value=variable_other,
-                step=10,
-                key=f"{page_type}_variable_other",
-            )
-
-        # 세부 카테고리 합계 재계산 (세션 상태에서 최신 값 읽기)
-        fixed_housing_val = st.session_state.get(f"{page_type}_fixed_housing", 0)
-        fixed_insurance_val = st.session_state.get(f"{page_type}_fixed_insurance", 0)
-        fixed_communication_val = st.session_state.get(
-            f"{page_type}_fixed_communication", 0
-        )
-        fixed_loan_interest_val = st.session_state.get(
-            f"{page_type}_fixed_loan_interest", 0
-        )
-        fixed_other_val = st.session_state.get(f"{page_type}_fixed_other", 0)
-        variable_food_val = st.session_state.get(f"{page_type}_variable_food", 0)
-        variable_transport_val = st.session_state.get(
-            f"{page_type}_variable_transport", 0
-        )
-        variable_leisure_val = st.session_state.get(f"{page_type}_variable_leisure", 0)
-        variable_shopping_val = st.session_state.get(
-            f"{page_type}_variable_shopping", 0
-        )
-        variable_other_val = st.session_state.get(f"{page_type}_variable_other", 0)
-
-        detailed_fixed_total = (
-            fixed_housing_val
-            + fixed_insurance_val
-            + fixed_communication_val
-            + fixed_loan_interest_val
-            + fixed_other_val
-        )
-        detailed_variable_total = (
-            variable_food_val
-            + variable_transport_val
-            + variable_leisure_val
-            + variable_shopping_val
-            + variable_other_val
+        # 고정비 섹션
+        st.markdown("**고정비**")
+        fixed_items = st.session_state[fixed_expense_key]
+        fixed_total = sum(item.get("amount", 0) for item in fixed_items)  # 1원 단위
+        st.markdown(
+            f"**합계: {fixed_total:,}원** (만원: {fixed_total / 10000:.1f}만원)"
         )
 
-        # inputs에 저장할 때도 세션 상태에서 읽은 값 사용
-        fixed_housing = fixed_housing_val
-        fixed_insurance = fixed_insurance_val
-        fixed_communication = fixed_communication_val
-        fixed_loan_interest = fixed_loan_interest_val
-        fixed_other = fixed_other_val
-        variable_food = variable_food_val
-        variable_transport = variable_transport_val
-        variable_leisure = variable_leisure_val
-        variable_shopping = variable_shopping_val
-        variable_other = variable_other_val
+        # 고정비 항목 표시 및 삭제
+        for idx, item in enumerate(fixed_items):
+            col_cat, col_amt, col_del = st.columns([3, 2, 1])
+            with col_cat:
+                st.text(f"{item.get('category', '')}")
+            with col_amt:
+                st.text(f"{item.get('amount', 0):,}원")
+            with col_del:
+                if st.button(
+                    "삭제",
+                    key=f"{page_type}_fixed_del_{item['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state[fixed_expense_key] = [
+                        i for i in fixed_items if i["id"] != item["id"]
+                    ]
+                    st.rerun()
 
-        # 세부 입력이 있으면 자동으로 세션 상태 업데이트
-        if detailed_fixed_total > 0 or detailed_variable_total > 0:
-            st.session_state[f"{page_type}_monthly_fixed_expense"] = (
-                detailed_fixed_total
-            )
-            st.session_state[f"{page_type}_monthly_variable_expense"] = (
-                detailed_variable_total
-            )
+        # 고정비 추가 버튼
+        if st.button(
+            "➕ 고정비 추가", key=f"{page_type}_add_fixed", use_container_width=True
+        ):
+            # 새 항목 추가 모달 대신 inline 입력
+            st.session_state[f"{page_type}_adding_fixed"] = True
 
-        # 기본 입력 필드 (세부 입력 합계 또는 직접 입력)
-        # 세부 입력 합계가 있으면 그것을 기본값으로 사용
-        default_fixed = (
-            detailed_fixed_total
-            if detailed_fixed_total > 0
-            else st.session_state.get(f"{page_type}_monthly_fixed_expense", None)
-        )
-        default_variable = (
-            detailed_variable_total
-            if detailed_variable_total > 0
-            else st.session_state.get(f"{page_type}_monthly_variable_expense", None)
+        # 고정비 추가 입력 폼
+        if st.session_state.get(f"{page_type}_adding_fixed", False):
+            with st.container():
+                col_cat, col_amt = st.columns([2, 2])
+                with col_cat:
+                    new_category = st.selectbox(
+                        "카테고리",
+                        FIXED_EXPENSE_CATEGORIES,
+                        key=f"{page_type}_new_fixed_category",
+                    )
+                with col_amt:
+                    new_amount = st.number_input(
+                        "금액 (원)",
+                        min_value=0,
+                        value=0,
+                        step=1000,
+                        key=f"{page_type}_new_fixed_amount",
+                    )
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button(
+                        "저장", key=f"{page_type}_save_fixed", use_container_width=True
+                    ):
+                        new_item = {
+                            "id": str(uuid.uuid4()),
+                            "category": new_category,
+                            "amount": new_amount,
+                        }
+                        st.session_state[fixed_expense_key].append(new_item)
+                        st.session_state[f"{page_type}_adding_fixed"] = False
+                        st.rerun()
+                with col_cancel:
+                    if st.button(
+                        "취소",
+                        key=f"{page_type}_cancel_fixed",
+                        use_container_width=True,
+                    ):
+                        st.session_state[f"{page_type}_adding_fixed"] = False
+                        st.rerun()
+
+        st.divider()
+
+        # 변동비 섹션
+        st.markdown("**변동비**")
+        variable_items = st.session_state[variable_expense_key]
+        variable_total = sum(
+            item.get("amount", 0) for item in variable_items
+        )  # 1원 단위
+        st.markdown(
+            f"**합계: {variable_total:,}원** (만원: {variable_total / 10000:.1f}만원)"
         )
 
-        monthly_fixed_expense = st.number_input(
-            "월간 고정비 (만원)",
-            min_value=0,
-            value=default_fixed,
-            step=10,
-            key=f"{page_type}_monthly_fixed_expense",
-            help="주거비, 보험료, 통신비, 대출이자 등 고정 지출 (세부 카테고리 입력 시 자동 합계)",
+        # 변동비 항목 표시 및 삭제
+        for idx, item in enumerate(variable_items):
+            col_cat, col_amt, col_del = st.columns([3, 2, 1])
+            with col_cat:
+                st.text(f"{item.get('category', '')}")
+            with col_amt:
+                st.text(f"{item.get('amount', 0):,}원")
+            with col_del:
+                if st.button(
+                    "삭제",
+                    key=f"{page_type}_variable_del_{item['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state[variable_expense_key] = [
+                        i for i in variable_items if i["id"] != item["id"]
+                    ]
+                    st.rerun()
+
+        # 변동비 추가 버튼
+        if st.button(
+            "➕ 변동비 추가", key=f"{page_type}_add_variable", use_container_width=True
+        ):
+            st.session_state[f"{page_type}_adding_variable"] = True
+
+        # 변동비 추가 입력 폼
+        if st.session_state.get(f"{page_type}_adding_variable", False):
+            with st.container():
+                col_cat, col_amt = st.columns([2, 2])
+                with col_cat:
+                    new_category = st.selectbox(
+                        "카테고리",
+                        VARIABLE_EXPENSE_CATEGORIES,
+                        key=f"{page_type}_new_variable_category",
+                    )
+                with col_amt:
+                    new_amount = st.number_input(
+                        "금액 (원)",
+                        min_value=0,
+                        value=0,
+                        step=1000,
+                        key=f"{page_type}_new_variable_amount",
+                    )
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button(
+                        "저장",
+                        key=f"{page_type}_save_variable",
+                        use_container_width=True,
+                    ):
+                        new_item = {
+                            "id": str(uuid.uuid4()),
+                            "category": new_category,
+                            "amount": new_amount,
+                        }
+                        st.session_state[variable_expense_key].append(new_item)
+                        st.session_state[f"{page_type}_adding_variable"] = False
+                        st.rerun()
+                with col_cancel:
+                    if st.button(
+                        "취소",
+                        key=f"{page_type}_cancel_variable",
+                        use_container_width=True,
+                    ):
+                        st.session_state[f"{page_type}_adding_variable"] = False
+                        st.rerun()
+
+        # 총 월 지출 (만원 단위로 변환하여 저장)
+        monthly_total_expense_won = fixed_total + variable_total
+        monthly_fixed_expense_value = fixed_total / 10000  # 만원 단위로 변환
+        monthly_variable_expense_value = variable_total / 10000  # 만원 단위로 변환
+        st.divider()
+        st.markdown(
+            f"**총 월 지출: {monthly_total_expense_won:,}원** ({monthly_fixed_expense_value + monthly_variable_expense_value:.1f}만원)"
         )
-        # 세부 입력이 있으면 세부 입력 합계를 우선 사용
-        if detailed_fixed_total > 0:
-            monthly_fixed_expense_value = detailed_fixed_total
-        else:
-            monthly_fixed_expense_value = (
-                monthly_fixed_expense if monthly_fixed_expense is not None else 0
-            )
+
+        # inputs에 저장 (만원 단위)
         inputs["monthly_fixed_expense"] = monthly_fixed_expense_value
-
-        monthly_variable_expense = st.number_input(
-            "월간 변동비 (만원)",
-            min_value=0,
-            value=default_variable,
-            step=10,
-            key=f"{page_type}_monthly_variable_expense",
-            help="식비, 교통비, 여가비, 쇼핑 등 변동 지출 (세부 카테고리 입력 시 자동 합계)",
-        )
-        # 세부 입력이 있으면 세부 입력 합계를 우선 사용
-        if detailed_variable_total > 0:
-            monthly_variable_expense_value = detailed_variable_total
-        else:
-            monthly_variable_expense_value = (
-                monthly_variable_expense if monthly_variable_expense is not None else 0
-            )
         inputs["monthly_variable_expense"] = monthly_variable_expense_value
-
-        # 총 월 지출 표시 (읽기 전용)
-        monthly_total_expense = (
-            monthly_fixed_expense_value + monthly_variable_expense_value
-        )
-        st.metric("총 월 지출", format_currency(monthly_total_expense))
-
-        # 세부 카테고리 정보도 inputs에 저장
-        inputs["fixed_housing"] = fixed_housing
-        inputs["fixed_insurance"] = fixed_insurance
-        inputs["fixed_communication"] = fixed_communication
-        inputs["fixed_loan_interest"] = fixed_loan_interest
-        inputs["fixed_other"] = fixed_other
-        inputs["variable_food"] = variable_food
-        inputs["variable_transport"] = variable_transport
-        inputs["variable_leisure"] = variable_leisure
-        inputs["variable_shopping"] = variable_shopping
-        inputs["variable_other"] = variable_other
+        inputs["fixed_expense_items"] = fixed_items
+        inputs["variable_expense_items"] = variable_items
 
     with col4:
         st.subheader("자산 정보")
 
-        # 세부 자산 입력값을 먼저 읽기 (expander 밖에서도 접근 가능하도록)
-        asset_real_estate = st.session_state.get(f"{page_type}_asset_real_estate", 0)
-        asset_deposit_amount = st.session_state.get(
-            f"{page_type}_asset_deposit_amount", 0
-        )
-        asset_deposit_rate = float(
-            st.session_state.get(f"{page_type}_asset_deposit_rate", 0.0)
-        )
-        asset_savings_amount = st.session_state.get(
-            f"{page_type}_asset_savings_amount", 0
-        )
-        asset_savings_rate = float(
-            st.session_state.get(f"{page_type}_asset_savings_rate", 0.0)
-        )
-        asset_stock_amount = st.session_state.get(f"{page_type}_asset_stock_amount", 0)
-        asset_stock_return = float(
-            st.session_state.get(f"{page_type}_asset_stock_return", 0.0)
-        )
-        asset_other = st.session_state.get(f"{page_type}_asset_other", 0)
+        # 자산 항목 리스트 초기화
+        assets_key = f"{page_type}_asset_items"
+        if assets_key not in st.session_state:
+            st.session_state[assets_key] = []
 
-        # 세부 카테고리 입력 expander
-        with st.expander("📝 세부 카테고리별 입력", expanded=False):
-            st.markdown("**자산 세부 카테고리**")
-            asset_real_estate = st.number_input(
-                "부동산 (만원)",
-                min_value=0,
-                value=asset_real_estate,
-                step=100,
-                key=f"{page_type}_asset_real_estate",
+        # 자산 항목 표시
+        asset_items = st.session_state[assets_key]
+
+        # 자산 합계 계산 (타입별로 다르게 계산, 예금/적금은 이자 포함)
+        assets_total = 0
+        for item in asset_items:
+            asset_type = item.get("type", "")
+            if asset_type == "예금":
+                principal = item.get("amount", 0)
+                months = item.get("months", 0)
+                rate = item.get("rate", 0.0)
+                is_compound = item.get("is_compound", False)
+                assets_total += calculate_deposit_interest(
+                    principal, months, rate, is_compound
+                )
+            elif asset_type == "적금":
+                monthly_amount = item.get("monthly_amount", 0)
+                months = item.get("months", 0)
+                rate = item.get("rate", 0.0)
+                is_compound = item.get("is_compound", False)
+                assets_total += calculate_savings_interest(
+                    monthly_amount, months, rate, is_compound
+                )
+            elif asset_type == "부동산":
+                assets_total += item.get("value", 0)
+            elif asset_type == "주식":
+                assets_total += item.get("amount", 0)
+
+        st.markdown(
+            f"**합계: {assets_total:,}원** (만원: {assets_total / 10000:.1f}만원)"
+        )
+
+        # 자산 항목 표시 및 삭제
+        for item in asset_items:
+            asset_type = item.get("type", "")
+            col_type, col_info, col_del = st.columns([2, 4, 1])
+            with col_type:
+                st.text(f"{asset_type}")
+            with col_info:
+                if asset_type == "예금":
+                    principal = item.get("amount", 0)
+                    months = item.get("months", 0)
+                    rate = item.get("rate", 0.0)
+                    is_compound = item.get("is_compound", False)
+                    total = calculate_deposit_interest(
+                        principal, months, rate, is_compound
+                    )
+                    interest_type = "복리" if is_compound else "단리"
+                    st.text(
+                        f"{principal:,}원, {months}개월, {rate:.2f}% ({interest_type}) → {total:,.0f}원"
+                    )
+                elif asset_type == "적금":
+                    monthly_amount = item.get("monthly_amount", 0)
+                    months = item.get("months", 0)
+                    rate = item.get("rate", 0.0)
+                    is_compound = item.get("is_compound", False)
+                    total = calculate_savings_interest(
+                        monthly_amount, months, rate, is_compound
+                    )
+                    interest_type = "복리" if is_compound else "단리"
+                    st.text(
+                        f"월 {monthly_amount:,}원, {months}개월, {rate:.2f}% ({interest_type}) → {total:,.0f}원"
+                    )
+                elif asset_type == "부동산":
+                    st.text(f"{item.get('value', 0):,}원")
+                elif asset_type == "주식":
+                    st.text(
+                        f"{item.get('amount', 0):,}원, {item.get('return_rate', 0):.2f}%"
+                    )
+            with col_del:
+                if st.button(
+                    "삭제",
+                    key=f"{page_type}_asset_del_{item['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state[assets_key] = [
+                        i for i in asset_items if i["id"] != item["id"]
+                    ]
+                    st.rerun()
+
+        # 자산 추가 버튼
+        if st.button(
+            "➕ 자산 추가", key=f"{page_type}_add_asset", use_container_width=True
+        ):
+            st.session_state[f"{page_type}_adding_asset"] = True
+
+        # 자산 추가 입력 폼
+        if st.session_state.get(f"{page_type}_adding_asset", False):
+            with st.container():
+                asset_type = st.selectbox(
+                    "자산 타입", ASSET_TYPES, key=f"{page_type}_new_asset_type"
+                )
+
+                new_item = {"id": str(uuid.uuid4()), "type": asset_type}
+
+                if asset_type == "예금":
+                    col_amt, col_mon, col_rate, col_interest = st.columns(
+                        [2, 1.5, 1.5, 1]
+                    )
+                    with col_amt:
+                        amount = st.number_input(
+                            "금액 (원)",
+                            min_value=0,
+                            value=0,
+                            step=10000,
+                            key=f"{page_type}_new_deposit_amount",
+                        )
+                    with col_mon:
+                        months = st.number_input(
+                            "개월 수",
+                            min_value=0,
+                            value=0,
+                            step=1,
+                            key=f"{page_type}_new_deposit_months",
+                        )
+                    with col_rate:
+                        rate = st.number_input(
+                            "금리 (%)",
+                            min_value=0.0,
+                            max_value=20.0,
+                            value=0.0,
+                            step=0.1,
+                            format="%.2f",
+                            key=f"{page_type}_new_deposit_rate",
+                        )
+                    with col_interest:
+                        is_compound = st.selectbox(
+                            "이자",
+                            ["단리", "복리"],
+                            index=0,
+                            key=f"{page_type}_new_deposit_interest_type",
+                        )
+                    new_item.update(
+                        {
+                            "amount": amount,
+                            "months": months,
+                            "rate": rate,
+                            "is_compound": is_compound == "복리",
+                        }
+                    )
+
+                elif asset_type == "적금":
+                    col_amt, col_mon, col_rate, col_interest = st.columns(
+                        [2, 1.5, 1.5, 1]
+                    )
+                    with col_amt:
+                        monthly_amount = st.number_input(
+                            "매달 금액 (원)",
+                            min_value=0,
+                            value=0,
+                            step=10000,
+                            key=f"{page_type}_new_savings_monthly_amount",
+                        )
+                    with col_mon:
+                        months = st.number_input(
+                            "개월 수",
+                            min_value=0,
+                            value=0,
+                            step=1,
+                            key=f"{page_type}_new_savings_months",
+                        )
+                    with col_rate:
+                        rate = st.number_input(
+                            "금리 (%)",
+                            min_value=0.0,
+                            max_value=20.0,
+                            value=0.0,
+                            step=0.1,
+                            format="%.2f",
+                            key=f"{page_type}_new_savings_rate",
+                        )
+                    with col_interest:
+                        is_compound = st.selectbox(
+                            "이자",
+                            ["단리", "복리"],
+                            index=0,
+                            key=f"{page_type}_new_savings_interest_type",
+                        )
+                    new_item.update(
+                        {
+                            "monthly_amount": monthly_amount,
+                            "months": months,
+                            "rate": rate,
+                            "is_compound": is_compound == "복리",
+                        }
+                    )
+
+                elif asset_type == "부동산":
+                    value = st.number_input(
+                        "가치 (원)",
+                        min_value=0,
+                        value=0,
+                        step=1000000,
+                        key=f"{page_type}_new_real_estate_value",
+                    )
+                    new_item.update({"value": value})
+
+                elif asset_type == "주식":
+                    col_amt, col_return = st.columns(2)
+                    with col_amt:
+                        amount = st.number_input(
+                            "금액 (원)",
+                            min_value=0,
+                            value=0,
+                            step=10000,
+                            key=f"{page_type}_new_stock_amount",
+                        )
+                    with col_return:
+                        return_rate = st.number_input(
+                            "수익률 (%)",
+                            min_value=-100.0,
+                            max_value=100.0,
+                            value=0.0,
+                            step=0.5,
+                            format="%.2f",
+                            key=f"{page_type}_new_stock_return",
+                        )
+                    new_item.update({"amount": amount, "return_rate": return_rate})
+
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button(
+                        "저장", key=f"{page_type}_save_asset", use_container_width=True
+                    ):
+                        st.session_state[assets_key].append(new_item)
+                        st.session_state[f"{page_type}_adding_asset"] = False
+                        st.rerun()
+                with col_cancel:
+                    if st.button(
+                        "취소",
+                        key=f"{page_type}_cancel_asset",
+                        use_container_width=True,
+                    ):
+                        st.session_state[f"{page_type}_adding_asset"] = False
+                        st.rerun()
+
+        # 총 자산 (만원 단위로 변환하여 저장)
+        total_assets_value = assets_total / 10000  # 만원 단위로 변환
+        inputs["total_assets"] = total_assets_value
+        inputs["asset_items"] = asset_items
+
+        st.divider()
+
+        # 월 저축/투자 계획 섹션
+        st.markdown("**월 저축/투자 계획**")
+
+        # 월 저축/투자 계획 리스트 초기화
+        monthly_investment_key = f"{page_type}_monthly_investment_items"
+        if monthly_investment_key not in st.session_state:
+            st.session_state[monthly_investment_key] = []
+
+        # 월 저축/투자 계획 항목 표시
+        monthly_investment_items = st.session_state[monthly_investment_key]
+
+        # 월 저축/투자 계획 합계 계산
+        monthly_investment_total = sum(
+            item.get("monthly_amount", 0) for item in monthly_investment_items
+        )  # 1원 단위
+        st.markdown(
+            f"**월 합계: {monthly_investment_total:,}원** (만원: {monthly_investment_total / 10000:.1f}만원, 연간: {monthly_investment_total * 12 / 10000:.1f}만원)"
+        )
+
+        # 월 저축/투자 계획 항목 표시 및 삭제
+        for item in monthly_investment_items:
+            asset_type = item.get("type", "")
+            col_type, col_info, col_del = st.columns([2, 4, 1])
+            with col_type:
+                st.text(f"{asset_type}")
+            with col_info:
+                monthly_amount = item.get("monthly_amount", 0)
+                if asset_type == "예금":
+                    rate = item.get("rate", 0.0)
+                    st.text(f"월 {monthly_amount:,}원, 예상 금리 {rate:.2f}%")
+                elif asset_type == "적금":
+                    rate = item.get("rate", 0.0)
+                    st.text(f"월 {monthly_amount:,}원, 예상 금리 {rate:.2f}%")
+                elif asset_type == "부동산":
+                    st.text(f"월 {monthly_amount:,}원")
+                elif asset_type == "주식":
+                    return_rate = item.get("return_rate", 0.0)
+                    st.text(f"월 {monthly_amount:,}원, 예상 수익률 {return_rate:.2f}%")
+            with col_del:
+                if st.button(
+                    "삭제",
+                    key=f"{page_type}_monthly_investment_del_{item['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state[monthly_investment_key] = [
+                        i for i in monthly_investment_items if i["id"] != item["id"]
+                    ]
+                    st.rerun()
+
+        # 월 저축/투자 계획 추가 버튼
+        if st.button(
+            "➕ 월 저축/투자 계획 추가",
+            key=f"{page_type}_add_monthly_investment",
+            use_container_width=True,
+        ):
+            st.session_state[f"{page_type}_adding_monthly_investment"] = True
+
+        # 월 저축/투자 계획 추가 입력 폼
+        if st.session_state.get(f"{page_type}_adding_monthly_investment", False):
+            with st.container():
+                investment_type = st.selectbox(
+                    "자산 타입",
+                    ASSET_TYPES,
+                    key=f"{page_type}_new_monthly_investment_type",
+                )
+
+                new_item = {"id": str(uuid.uuid4()), "type": investment_type}
+
+                col_amt = st.columns(1)[0]
+                with col_amt:
+                    monthly_amount = st.number_input(
+                        "월 투자 금액 (원)",
+                        min_value=0,
+                        value=0,
+                        step=10000,
+                        key=f"{page_type}_new_monthly_investment_amount",
+                    )
+                    new_item["monthly_amount"] = monthly_amount
+
+                    if investment_type in ["예금", "적금"]:
+                        rate = st.number_input(
+                            "예상 금리 (%)",
+                            min_value=0.0,
+                            max_value=20.0,
+                            value=0.0,
+                            step=0.1,
+                            format="%.2f",
+                            key=f"{page_type}_new_monthly_investment_rate",
+                        )
+                        new_item["rate"] = rate
+                    elif investment_type == "주식":
+                        return_rate = st.number_input(
+                            "예상 수익률 (%)",
+                            min_value=-100.0,
+                            max_value=100.0,
+                            value=0.0,
+                            step=0.5,
+                            format="%.2f",
+                            key=f"{page_type}_new_monthly_investment_return_rate",
+                        )
+                        new_item["return_rate"] = return_rate
+
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button(
+                        "저장",
+                        key=f"{page_type}_save_monthly_investment",
+                        use_container_width=True,
+                    ):
+                        st.session_state[monthly_investment_key].append(new_item)
+                        st.session_state[f"{page_type}_adding_monthly_investment"] = (
+                            False
+                        )
+                        st.rerun()
+                with col_cancel:
+                    if st.button(
+                        "취소",
+                        key=f"{page_type}_cancel_monthly_investment",
+                        use_container_width=True,
+                    ):
+                        st.session_state[f"{page_type}_adding_monthly_investment"] = (
+                            False
+                        )
+                        st.rerun()
+
+        # 월 저축/투자 계획 정보를 inputs에 저장 (만원 단위)
+        monthly_investment_total_won = (
+            monthly_investment_total / 10000
+        )  # 만원 단위로 변환
+        inputs["monthly_investment_items"] = monthly_investment_items
+        inputs["monthly_investment_total"] = monthly_investment_total_won
+
+        st.divider()
+
+        # 부채 및 대출 정보 섹션
+        st.markdown("**부채 및 대출 정보**")
+
+        # 대출 항목 리스트 초기화
+        debt_items_key = f"{page_type}_debt_items"
+        if debt_items_key not in st.session_state:
+            st.session_state[debt_items_key] = []
+
+        # 대출 항목 표시
+        debt_items = st.session_state[debt_items_key]
+
+        # 대출 원금 합계 계산
+        # 주의: 이미 저장된 값은 단위 변환이 완료된 것이므로, 다시 변환하지 않음
+        # 단, 기존 데이터 호환성을 위해 변환이 필요한 경우만 처리
+        total_debt_from_items = 0
+        needs_update = False  # 업데이트가 필요한지 추적
+
+        for item in debt_items:
+            # 기간이 지난 대출은 계산에서 제외 (remaining_months <= 0)
+            remaining_months = item.get("remaining_months", 0)
+            if remaining_months is not None and remaining_months <= 0:
+                continue  # 기간이 지난 대출은 원금 합계에 포함하지 않음
+
+            principal = item.get("principal", 0)
+
+            # 이미 변환된 값인지 확인 (_normalized 플래그가 있거나 값이 정상 범위)
+            is_normalized = item.get("_normalized", False)
+
+            # 원금 값이 비정상적으로 큰 경우 (예: 원 단위로 입력된 기존 데이터)
+            # 일반적인 대출 원금 범위: 1만원 ~ 10억만원 (만원 단위 기준)
+            # 값이 100,000만원(100억원) 이상이면 원 단위로 입력된 것으로 간주
+            if (
+                not is_normalized and principal >= 100000
+            ):  # 10억원 이상 (100,000만원 이상)
+                # 원 단위를 만원 단위로 변환 (예: 150000000원 -> 15000만원)
+                principal = principal / 10000
+                item["principal"] = principal
+                item["_normalized"] = True
+                needs_update = True
+
+            total_debt_from_items += principal
+
+        # 월 상환액 합계 계산 (만원 단위)
+        # 기간이 지난 대출은 계산에서 제외
+        total_monthly_debt_payment = 0
+        for item in debt_items:
+            # 기간이 지난 대출은 월 상환액에도 포함하지 않음
+            remaining_months = item.get("remaining_months", 0)
+            if remaining_months is not None and remaining_months <= 0:
+                continue  # 기간이 지난 대출은 월 상환액에 포함하지 않음
+
+            monthly_payment = item.get("monthly_payment", 0)
+            principal = item.get("principal", 0)
+            is_normalized = item.get("_normalized", False)
+
+            # 월 상환액이 비정상적으로 큰 경우 검증 (기존 데이터 호환성)
+            # 일반적인 월 상환액 범위: 1만원 ~ 500만원 (만원 단위 기준)
+            if not is_normalized and monthly_payment >= 500:  # 500만원 이상
+                # 원 단위를 만원 단위로 변환 (예: 275000원 -> 27.5만원)
+                monthly_payment = monthly_payment / 10000
+                item["monthly_payment"] = monthly_payment
+                item["_normalized"] = True
+                needs_update = True
+            elif (
+                not is_normalized
+                and item.get("repayment_type") == "만기 원금 상환"
+                and monthly_payment > principal * 0.1
+                and principal > 0
+            ):
+                # 만기 원금 상환인데 월 상환액이 원금의 10% 이상이면 원 단위로 간주
+                monthly_payment = monthly_payment / 10000
+                item["monthly_payment"] = monthly_payment
+                item["_normalized"] = True
+                needs_update = True
+
+            total_monthly_debt_payment += monthly_payment
+
+        # session state 업데이트 (변환이 실제로 일어난 경우에만, 한 번만)
+        if needs_update:
+            st.session_state[debt_items_key] = debt_items
+
+        # 대출 항목이 있으면 표시 (기간이 지난 대출 제외)
+        # 기간이 지난 대출 필터링 (remaining_months > 0 또는 없으면 표시)
+        active_debt_items = [
+            item
+            for item in debt_items
+            if item.get("remaining_months", 0) > 0
+            or item.get("remaining_months") is None
+        ]
+
+        if active_debt_items:
+            st.markdown(
+                f"**등록된 대출: {len(active_debt_items)}개** (만료된 대출 {len(debt_items) - len(active_debt_items)}개 제외)"
+            )
+            for idx, item in enumerate(active_debt_items):
+                (
+                    col_principal,
+                    col_rate,
+                    col_type,
+                    col_jeonse,
+                    col_payment,
+                    col_months,
+                    col_del,
+                ) = st.columns([1.8, 1, 1.5, 1, 1.2, 1, 0.8])
+                with col_principal:
+                    st.text(f"{item.get('principal', 0):,.0f}만원")
+                with col_rate:
+                    st.text(f"{item.get('interest_rate', 0):.2f}%")
+                with col_type:
+                    repayment_type = item.get("repayment_type", "만기 원금 상환")
+                    st.text(f"{repayment_type}")
+                with col_jeonse:
+                    is_jeonse = item.get("is_jeonse", False)
+                    st.text("전세" if is_jeonse else "-")
+                with col_payment:
+                    st.text(f"월 {item.get('monthly_payment', 0):,.0f}만원")
+                with col_months:
+                    remaining_months = item.get("remaining_months", 0)
+                    total_months = item.get("total_months", remaining_months)
+                    if remaining_months and remaining_months > 0:
+                        years = remaining_months // 12
+                        months = remaining_months % 12
+                        if years > 0:
+                            st.text(f"{years}년 {months}개월")
+                        else:
+                            st.text(f"{months}개월")
+                    else:
+                        st.text("만료")
+                    if total_months != remaining_months:
+                        st.caption(f"(총 {total_months}개월)")
+                with col_del:
+                    if st.button(
+                        "삭제",
+                        key=f"{page_type}_debt_del_{item['id']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state[debt_items_key] = [
+                            i for i in debt_items if i["id"] != item["id"]
+                        ]
+                        st.rerun()
+        # 활성 대출이 있는 경우 요약 정보 표시
+        if active_debt_items:
+            st.info(
+                f"**대출 원금 합계: {total_debt_from_items:,.0f}만원** | **월 대출 상환액 합계: {total_monthly_debt_payment:,.0f}만원**"
+            )
+            if len(debt_items) > len(active_debt_items):
+                st.caption(
+                    f"💡 만료된 대출 {len(debt_items) - len(active_debt_items)}개는 계산에서 제외되었습니다."
+                )
+            st.divider()
+        elif debt_items:
+            # 모든 대출이 만료된 경우
+            st.info(f"⚠️ 등록된 대출 {len(debt_items)}개가 모두 만료되었습니다.")
+            st.info(
+                f"**만료된 대출 원금 합계: {total_debt_from_items:,.0f}만원** | **만료된 대출은 계산에서 제외됩니다.**"
+            )
+            st.divider()
+
+        # 대출 추가 버튼
+        if st.button(
+            "➕ 대출 추가", key=f"{page_type}_add_debt", use_container_width=True
+        ):
+            st.session_state[f"{page_type}_adding_debt"] = True
+
+        # 대출 추가 입력 폼
+        if st.session_state.get(f"{page_type}_adding_debt", False):
+            with st.container():
+                st.markdown("**새 대출 입력**")
+
+                # 총 금액 (원 단위 입력)
+                debt_principal = st.number_input(
+                    "총 금액 (원)",
+                    min_value=0,
+                    value=0,
+                    step=1,
+                    key=f"{page_type}_new_debt_principal",
+                    help="대출 원금 총액 (원 단위로 입력)",
+                    format="%d",
+                )
+
+                col_rate, col_type = st.columns(2)
+                with col_rate:
+                    debt_interest_rate = st.number_input(
+                        "이자율 (%)",
+                        min_value=0.0,
+                        max_value=20.0,
+                        value=3.0,
+                        step=0.1,
+                        key=f"{page_type}_new_debt_interest_rate",
+                        help="연 이자율",
+                    )
+                with col_type:
+                    debt_repayment_type = st.selectbox(
+                        "상환 방법",
+                        DEBT_REPAYMENT_TYPES,
+                        key=f"{page_type}_new_debt_repayment_type",
+                        help="만기 원금 상환: 매월 이자만 납입, 만기에 원금 일시 상환",
+                    )
+
+                # 전세자금 대출 여부 체크
+                is_jeonse = st.checkbox(
+                    "전세자금 대출",
+                    value=False,
+                    key=f"{page_type}_new_debt_is_jeonse",
+                    help="전세자금 대출인 경우 만기에 원금 일시 상환됩니다",
+                )
+
+                # 총 개월
+                debt_total_months = st.number_input(
+                    "총 개월",
+                    min_value=1,
+                    value=120,
+                    step=1,
+                    key=f"{page_type}_new_debt_total_months",
+                    help="대출 총 상환 기간 (개월)",
+                )
+
+                # 전세자금 대출이면 자동으로 만기 원금 상환으로 설정
+                if is_jeonse:
+                    debt_repayment_type = "만기 원금 상환"
+                    st.info(
+                        "💡 전세자금 대출은 자동으로 '만기 원금 상환' 방식으로 설정됩니다."
+                    )
+
+                # 월 상환액 계산 및 안내 (원 단위 기준으로 계산 후 만원 단위로 표시)
+                monthly_payment = 0.0
+                if debt_principal > 0 and debt_interest_rate > 0:
+                    # 원 단위 기준으로 계산
+                    principal_in_won = debt_principal
+                    if debt_repayment_type == "만기 원금 상환":
+                        # 만기 원금 상환: 매월 이자만 납입 (원 단위)
+                        monthly_payment_won = (
+                            principal_in_won * debt_interest_rate / 100
+                        ) / 12
+                        monthly_payment = (
+                            monthly_payment_won / 10000
+                        )  # 만원 단위로 변환 (저장용)
+                        st.info(
+                            f"💡 월 상환액 (이자): 약 {monthly_payment:.0f}만원 ({monthly_payment_won:,.0f}원) | "
+                            f"만기 시 원금 {principal_in_won:,.0f}원 ({principal_in_won/10000:.0f}만원) 일시 상환"
+                        )
+                    elif debt_repayment_type == "균등 상환":
+                        # 균등 상환: 원리금 균등 상환 계산 (원 단위 기준)
+                        if debt_total_months > 0:
+                            monthly_rate = debt_interest_rate / 100 / 12
+                            if monthly_rate > 0:
+                                annuity_factor = (
+                                    (1 + monthly_rate) ** debt_total_months - 1
+                                ) / (
+                                    monthly_rate
+                                    * (1 + monthly_rate) ** debt_total_months
+                                )
+                                monthly_payment_won = (
+                                    principal_in_won / annuity_factor
+                                    if annuity_factor > 0
+                                    else 0
+                                )
+                                monthly_payment = (
+                                    monthly_payment_won / 10000
+                                )  # 만원 단위로 변환 (저장용)
+                                st.info(
+                                    f"💡 월 상환액: 약 {monthly_payment:.0f}만원 ({monthly_payment_won:,.0f}원) "
+                                    f"(원금+이자 균등 상환, {debt_total_months}개월)"
+                                )
+                    elif debt_repayment_type == "분할 상환":
+                        # 분할 상환: 원금 균등 + 이자 (원 단위 기준)
+                        principal_per_month_won = (
+                            principal_in_won / debt_total_months
+                            if debt_total_months > 0
+                            else 0
+                        )
+                        interest_first_month_won = (
+                            principal_in_won * debt_interest_rate / 100
+                        ) / 12
+                        monthly_payment_won = (
+                            principal_per_month_won + interest_first_month_won
+                        )
+                        monthly_payment = (
+                            monthly_payment_won / 10000
+                        )  # 만원 단위로 변환 (저장용)
+                        st.info(
+                            f"💡 초기 월 상환액: 약 {monthly_payment:.0f}만원 ({monthly_payment_won:,.0f}원) "
+                            f"(원금 {principal_per_month_won/10000:.0f}만원 + 이자 {interest_first_month_won/10000:.0f}만원, 점차 감소)"
+                        )
+
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button(
+                        "저장", key=f"{page_type}_save_debt", use_container_width=True
+                    ):
+                        if debt_principal == 0:
+                            st.error("총 금액을 입력해주세요.")
+                        elif debt_total_months <= 0:
+                            st.error("총 개월을 입력해주세요.")
+                        else:
+                            # 원 단위 입력값을 만원 단위로 변환하여 저장 (내부 계산은 만원 단위로 통일)
+                            principal_in_manwon = (
+                                debt_principal / 10000
+                            )  # 원 → 만원 변환
+
+                            # 대출 이름 생성 (전세자금 대출 여부에 따라)
+                            if is_jeonse:
+                                debt_name = f"전세자금대출 ({debt_total_months}개월)"
+                            else:
+                                debt_name = f"대출 ({debt_total_months}개월)"
+
+                            new_debt_item = {
+                                "id": str(uuid.uuid4()),
+                                "name": debt_name,
+                                "principal": principal_in_manwon,  # 만원 단위로 저장 (원 단위 입력값 변환)
+                                "interest_rate": debt_interest_rate,
+                                "repayment_type": debt_repayment_type,
+                                "monthly_payment": monthly_payment,  # 계산된 월 상환액 (만원 단위)
+                                "remaining_months": debt_total_months,  # 총 개월
+                                "total_months": debt_total_months,  # 총 개월 저장 (참조용)
+                                "is_jeonse": is_jeonse,  # 전세자금 대출 여부
+                                "_normalized": True,  # 단위 변환 완료 플래그
+                            }
+                            st.session_state[debt_items_key].append(new_debt_item)
+                            st.session_state[f"{page_type}_adding_debt"] = False
+                            st.rerun()
+                with col_cancel:
+                    if st.button(
+                        "취소",
+                        key=f"{page_type}_cancel_debt",
+                        use_container_width=True,
+                    ):
+                        st.session_state[f"{page_type}_adding_debt"] = False
+                        st.rerun()
+
+        st.divider()
+
+        # 총 부채 입력 (대출 항목 외 다른 부채 포함)
+        other_debt = st.number_input(
+            "기타 부채 (만원)",
+            min_value=0,
+            value=st.session_state.get(f"{page_type}_other_debt", 0),
+            step=100,
+            key=f"{page_type}_other_debt",
+            help="대출 항목 외 카드 빚, 기타 부채 등",
+        )
+
+        # 총 부채 = 대출 원금 합계 + 기타 부채
+        total_debt = total_debt_from_items + other_debt
+
+        # 총 부채 표시
+        if total_debt > 0:
+            st.markdown(
+                f"**💰 총 부채: {total_debt:,.0f}만원** (대출 원금: {total_debt_from_items:,.0f}만원 + 기타 부채: {other_debt:,.0f}만원)"
             )
 
-            col_deposit1, col_deposit2 = st.columns(2)
-            with col_deposit1:
-                asset_deposit_amount = st.number_input(
-                    "예금 금액 (만원)",
-                    min_value=0,
-                    value=asset_deposit_amount,
-                    step=100,
-                    key=f"{page_type}_asset_deposit_amount",
-                )
-            with col_deposit2:
-                asset_deposit_rate = st.number_input(
-                    "예금 금리 (%)",
-                    min_value=0.0,
-                    max_value=20.0,
-                    value=asset_deposit_rate,
-                    step=0.1,
-                    key=f"{page_type}_asset_deposit_rate",
-                    format="%.2f",
-                )
-
-            col_savings1, col_savings2 = st.columns(2)
-            with col_savings1:
-                asset_savings_amount = st.number_input(
-                    "적금 금액 (만원)",
-                    min_value=0,
-                    value=asset_savings_amount,
-                    step=100,
-                    key=f"{page_type}_asset_savings_amount",
-                )
-            with col_savings2:
-                asset_savings_rate = st.number_input(
-                    "적금 금리 (%)",
-                    min_value=0.0,
-                    max_value=20.0,
-                    value=asset_savings_rate,
-                    step=0.1,
-                    key=f"{page_type}_asset_savings_rate",
-                    format="%.2f",
-                )
-
-            col_stock1, col_stock2 = st.columns(2)
-            with col_stock1:
-                asset_stock_amount = st.number_input(
-                    "주식 금액 (만원)",
-                    min_value=0,
-                    value=asset_stock_amount,
-                    step=100,
-                    key=f"{page_type}_asset_stock_amount",
-                )
-            with col_stock2:
-                asset_stock_return = st.number_input(
-                    "주식 수익률 (%)",
-                    min_value=-50.0,
-                    max_value=100.0,
-                    value=asset_stock_return,
-                    step=0.5,
-                    key=f"{page_type}_asset_stock_return",
-                    format="%.2f",
-                )
-
-            asset_other = st.number_input(
-                "기타 자산 (만원)",
-                min_value=0,
-                value=asset_other,
-                step=100,
-                key=f"{page_type}_asset_other",
-            )
-
-        # 세부 카테고리 합계 계산 (세션 상태에서 최신 값 읽기)
-        asset_real_estate_val = st.session_state.get(
-            f"{page_type}_asset_real_estate", 0
-        )
-        asset_deposit_amount_val = st.session_state.get(
-            f"{page_type}_asset_deposit_amount", 0
-        )
-        asset_savings_amount_val = st.session_state.get(
-            f"{page_type}_asset_savings_amount", 0
-        )
-        asset_stock_amount_val = st.session_state.get(
-            f"{page_type}_asset_stock_amount", 0
-        )
-        asset_other_val = st.session_state.get(f"{page_type}_asset_other", 0)
-        asset_deposit_rate = float(
-            st.session_state.get(f"{page_type}_asset_deposit_rate", 0.0)
-        )
-        asset_savings_rate = float(
-            st.session_state.get(f"{page_type}_asset_savings_rate", 0.0)
-        )
-        asset_stock_return = float(
-            st.session_state.get(f"{page_type}_asset_stock_return", 0.0)
-        )
-
-        detailed_assets_total = (
-            asset_real_estate_val
-            + asset_deposit_amount_val
-            + asset_savings_amount_val
-            + asset_stock_amount_val
-            + asset_other_val
-        )
-
-        # inputs에 저장할 때도 세션 상태에서 읽은 값 사용
-        asset_real_estate = asset_real_estate_val
-        asset_deposit_amount = asset_deposit_amount_val
-        asset_savings_amount = asset_savings_amount_val
-        asset_stock_amount = asset_stock_amount_val
-        asset_other = asset_other_val
-
-        # 세부 입력이 있으면 자동으로 세션 상태 업데이트
-        if detailed_assets_total > 0:
-            st.session_state[f"{page_type}_total_assets"] = detailed_assets_total
-
-        # 기본 입력 필드 (세부 입력 합계 또는 직접 입력)
-        # 세부 입력 합계가 있으면 그것을 기본값으로 사용
-        default_assets = (
-            detailed_assets_total
-            if detailed_assets_total > 0
-            else st.session_state.get(f"{page_type}_total_assets", None)
-        )
-
-        total_assets = st.number_input(
-            "총 자산 (만원)",
-            min_value=0,
-            value=default_assets,
-            step=100,
-            key=f"{page_type}_total_assets",
-            help="현금, 예금, 주식 등 모든 자산의 합계 (세부 카테고리 입력 시 자동 합계)",
-        )
-        # 세부 입력이 있으면 세부 입력 합계를 우선 사용
-        if detailed_assets_total > 0:
-            inputs["total_assets"] = detailed_assets_total
-        else:
-            inputs["total_assets"] = total_assets if total_assets is not None else 0
-
-        total_debt = st.number_input(
-            "총 부채 (만원)",
-            min_value=0,
-            value=st.session_state.get(f"{page_type}_total_debt", None),
-            step=100,
-            key=f"{page_type}_total_debt",
-            help="대출, 카드 빚 등 모든 부채의 합계",
-        )
-        inputs["total_debt"] = total_debt if total_debt is not None else 0
-
-        # 세부 자산 정보도 inputs에 저장
-        inputs["asset_real_estate"] = asset_real_estate
-        inputs["asset_deposit_amount"] = asset_deposit_amount
-        inputs["asset_deposit_rate"] = asset_deposit_rate
-        inputs["asset_savings_amount"] = asset_savings_amount
-        inputs["asset_savings_rate"] = asset_savings_rate
-        inputs["asset_stock_amount"] = asset_stock_amount
-        inputs["asset_stock_return"] = asset_stock_return
-        inputs["asset_other"] = asset_other
+        inputs["total_debt"] = total_debt
+        inputs["debt_items"] = debt_items
+        inputs["total_monthly_debt_payment"] = total_monthly_debt_payment
 
     # 추가 설정 (인플레이션율, 은퇴 후 생활비)
     st.divider()

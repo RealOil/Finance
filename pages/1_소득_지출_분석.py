@@ -4,6 +4,17 @@
 미래 자산 추정, 재정 건전성 등급, 월 저축 가능 금액 등을 표시합니다.
 """
 
+import sys
+import os
+from pathlib import Path
+
+# 프로젝트 루트를 Python 경로에 추가
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent
+project_root_str = str(project_root)
+if project_root_str not in sys.path:
+    sys.path.insert(0, project_root_str)
+
 import streamlit as st
 from shared.session_manager import init_session_state
 from shared.page_input_form import render_page_input_form, check_inputs_complete
@@ -19,9 +30,8 @@ from modules.calculations import (
 from modules.formatters import (
     format_currency,
     format_percentage,
-    generate_future_assets_insight,
-    generate_financial_health_insight,
 )
+from modules.ai_insights import is_ai_enabled
 from modules.visualizations import (
     create_future_assets_chart,
     create_financial_health_gauge,
@@ -234,6 +244,108 @@ if run_simulation:
 
     st.divider()
 
+    # 저축/투자 가능 금액 상세 (대출 전/후 비교)
+    debt_items = inputs.get("debt_items", [])
+    if debt_items:
+        # 활성 대출만 필터링 (기간이 지나지 않은 대출)
+        active_debts = [
+            item
+            for item in debt_items
+            if item.get("remaining_months", 0) > 0
+            or item.get("remaining_months") is None
+        ]
+
+        if active_debts:
+            st.subheader("💰 저축/투자 가능 금액")
+
+            # 대출이 끝나기 전: 현재 월 저축 가능액 (대출 상환액 포함)
+            savings_before_debt_paid = monthly_savings
+
+            # 대출이 끝난 후: 대출 상환액을 제외한 월 저축 가능액
+            total_monthly_debt_payment = sum(
+                item.get("monthly_payment", 0) for item in active_debts
+            )
+            savings_after_debt_paid = monthly_savings + total_monthly_debt_payment
+
+            # 실제 저축/투자 금액
+            monthly_investment_items = inputs.get("monthly_investment_items", [])
+            actual_savings_investment = (
+                (
+                    sum(
+                        item.get("monthly_amount", 0)
+                        for item in monthly_investment_items
+                    )
+                    / 10000.0
+                )
+                if monthly_investment_items
+                else 0.0
+            )  # 만원 단위로 변환
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "대출 끝나기 전",
+                    format_currency(savings_before_debt_paid),
+                    help="현재 대출 상환액을 포함한 월 저축 가능액",
+                )
+                if total_monthly_debt_payment > 0:
+                    st.caption(
+                        f"월 대출 상환액: {format_currency(total_monthly_debt_payment)} 포함"
+                    )
+
+            with col2:
+                st.metric(
+                    "대출 끝난 후",
+                    format_currency(savings_after_debt_paid),
+                    help="모든 대출이 끝난 후의 월 저축 가능액",
+                )
+                if total_monthly_debt_payment > 0:
+                    st.caption(f"대출 상환액 제외 시 추가 저축 가능")
+
+            with col3:
+                st.metric(
+                    "실제 저축/투자",
+                    format_currency(actual_savings_investment),
+                    help="현재 월 저축/투자 계획에 설정된 금액",
+                )
+                if actual_savings_investment > 0:
+                    difference = actual_savings_investment - savings_before_debt_paid
+                    if difference > 0:
+                        st.caption(
+                            f"⚠️ 저축 가능액보다 {format_currency(abs(difference))} 많음"
+                        )
+                    elif difference < 0:
+                        st.caption(
+                            f"✅ 저축 가능액 대비 {format_currency(abs(difference))} 여유"
+                        )
+                    else:
+                        st.caption("✅ 저축 가능액과 동일")
+
+            # 대출 만료 시점 정보
+            if active_debts:
+                max_remaining_months = max(
+                    item.get("remaining_months", 0) or 0 for item in active_debts
+                )
+                if max_remaining_months > 0:
+                    years = max_remaining_months // 12
+                    months = max_remaining_months % 12
+                    if years > 0:
+                        st.info(
+                            f"💡 가장 긴 대출이 {years}년 {months}개월 후에 끝나면, "
+                            f"월 저축 가능액이 {format_currency(total_monthly_debt_payment)} 증가하여 "
+                            f"총 {format_currency(savings_after_debt_paid)}가 됩니다."
+                        )
+                    else:
+                        st.info(
+                            f"💡 가장 긴 대출이 {months}개월 후에 끝나면, "
+                            f"월 저축 가능액이 {format_currency(total_monthly_debt_payment)} 증가하여 "
+                            f"총 {format_currency(savings_after_debt_paid)}가 됩니다."
+                        )
+
+            st.divider()
+
+    st.divider()
+
     # 시각화
     st.header("📊 시각화")
 
@@ -284,16 +396,80 @@ if run_simulation:
 
     st.divider()
 
-    # 인사이트
-    st.header("💡 인사이트")
+    # AI 인사이트 (AI가 활성화된 경우만)
+    st.header("💡 AI 인사이트")
+    st.markdown("현재 재정 상태를 분석하여 맞춤형 조언을 제공합니다.")
 
-    # 미래 자산 인사이트
-    future_insight = generate_future_assets_insight(future_assets_result)
-    st.info(f"**미래 자산 분석**: {future_insight}")
+    if not is_ai_enabled():
+        st.info(
+            "💡 AI 인사이트를 사용하려면 `.env` 파일에 `OPENAI_API_KEY`를 설정하세요."
+        )
+        st.stop()
 
-    # 재정 건전성 인사이트
-    health_insight = generate_financial_health_insight(grade_result)
-    st.info(f"**재정 건전성 평가**: {health_insight}")
+    # 은퇴 목표 계산을 위한 기본값 설정 (AI 인사이트 생성에 필요)
+    inputs_for_retirement = inputs.copy()
+
+    # 은퇴 후 생활비가 없는 경우, 현재 생활비의 80%를 기본값으로 사용
+    if not inputs_for_retirement.get("retirement_monthly_expense"):
+        if "monthly_fixed_expense" in inputs and "monthly_variable_expense" in inputs:
+            current_monthly_expense = (
+                inputs["monthly_fixed_expense"] + inputs["monthly_variable_expense"]
+            )
+        else:
+            current_monthly_expense = inputs.get("monthly_expense", 0)
+        inputs_for_retirement["retirement_monthly_expense"] = (
+            current_monthly_expense * 0.8
+        )
+
+    # 의료비 기본값 설정
+    if not inputs_for_retirement.get("retirement_medical_expense"):
+        inputs_for_retirement["retirement_medical_expense"] = 45  # 기본값 45만원
+
+    # 은퇴 목표 계산 (기본값으로)
+    default_monthly_contribution_for_insight = (
+        max(50, int(monthly_savings / 50) * 50) if monthly_savings > 0 else 100
+    )
+
+    # 기본 수익률(5%)로 은퇴 목표 계산
+    default_retirement_goal, success_retirement_goal, _ = safe_calculate(
+        calculate_retirement_goal,
+        inputs_for_retirement,
+        default_monthly_contribution_for_insight,
+        5.0,  # 기본 수익률 5%
+        4.0,
+        error_message="은퇴 자금 목표 계산 중 오류가 발생했습니다.",
+    )
+
+    if success_retirement_goal and default_retirement_goal:
+        default_retirement_goal["monthly_contribution"] = (
+            default_monthly_contribution_for_insight
+        )
+        default_retirement_goal["annual_return_rate"] = 5.0
+
+    # 계산 결과 정리
+    calculation_results = {
+        "future_assets": future_assets_result,
+        "grade": grade_result,
+        "monthly_savings": monthly_savings,
+    }
+
+    # 은퇴 목표 계산 결과가 있는 경우만 추가
+    if success_retirement_goal and default_retirement_goal:
+        calculation_results["retirement_goal"] = default_retirement_goal
+
+    # AI 인사이트 생성 (항상 실행)
+    with st.spinner(
+        "🤖 AI가 맞춤형 인사이트와 실행 가능한 조언을 생성하고 있습니다..."
+    ):
+        from modules.ai_insights import generate_ai_insight
+
+        ai_insight = generate_ai_insight(inputs, calculation_results)
+
+    if ai_insight:
+        st.markdown("### 🤖 AI 맞춤형 인사이트")
+        st.markdown(ai_insight)
+    else:
+        st.warning("⚠️ AI 인사이트 생성 중 오류가 발생했습니다. API 키를 확인해주세요.")
 
     st.divider()
 

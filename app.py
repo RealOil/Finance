@@ -4,6 +4,17 @@
 사용자의 재정 상황을 분석하고 미래 자산을 예측하는 도구입니다.
 """
 
+import sys
+import os
+from pathlib import Path
+
+# 프로젝트 루트를 Python 경로에 추가
+current_file = Path(__file__).resolve()
+project_root = current_file.parent
+project_root_str = str(project_root)
+if project_root_str not in sys.path:
+    sys.path.insert(0, project_root_str)
+
 import streamlit as st
 from shared.session_manager import init_session_state
 

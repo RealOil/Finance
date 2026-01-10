@@ -163,10 +163,16 @@ def validate_logical_consistency(inputs: Dict[str, Any]) -> List[str]:
     if monthly_total_expense > monthly_salary:
         warnings.append(f"⚠️ 월 지출({monthly_total_expense:.0f}만원)이 월 소득({monthly_salary:.0f}만원)보다 큽니다.")
     
-    # 부채가 자산보다 큰 경우 경고
+    # 부채가 자산보다 큰 경우 경고 (계산은 가능하도록 경고만 표시)
     if total_debt > total_assets:
         net_assets = total_assets - total_debt
-        warnings.append(f"⚠️ 부채({total_debt:.0f}만원)가 자산({total_assets:.0f}만원)보다 큽니다. 순자산: {net_assets:.0f}만원")
+        debt_ratio = (total_debt / total_assets * 100) if total_assets > 0 else float('inf')
+        warnings.append(
+            f"⚠️ 부채({total_debt:,.0f}만원)가 자산({total_assets:,.0f}만원)보다 큽니다. "
+            f"순자산: {net_assets:,.0f}만원 (부채 비율: {debt_ratio:.1f}%)"
+        )
+        if total_assets == 0:
+            warnings.append("💡 자산이 0인 경우 부채 상환 능력을 재확인해주세요.")
     
     return warnings
 
